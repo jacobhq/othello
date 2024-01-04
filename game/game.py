@@ -8,6 +8,10 @@ UP, DOWN, LEFT, RIGHT = -10, 10, -1, 1
 UP_RIGHT, DOWN_RIGHT, DOWN_LEFT, UP_LEFT = -9, 11, 9, -11
 DIRECTIONS = (UP, UP_RIGHT, RIGHT, DOWN_RIGHT, DOWN, DOWN_LEFT, LEFT, UP_LEFT)
 
+# helper function to convert board to numbers
+def convert_board_numeric(board):
+  return [0 if char == '?' else 1 if char == '@' else -1 for char in board]
+
 def squares():
     return [i for i in range(11, 89) if 1 <= (i % 10) <= 8]
 
@@ -19,7 +23,9 @@ def initial_board():
     board[54], board[55] = BLACK, WHITE
     return board
 
-def print_board(board):
+def print_board(board, training=False):
+    if training: 
+        return convert_board_numeric(board)
     rep = ''
     rep += '  %s\n' % ' '.join(map(str, range(1, 9)))
     for row in range(1, 9):
@@ -75,16 +81,16 @@ def legal_moves(player, board):
 def any_legal_move(player, board):
     return any(is_legal(sq, player, board) for sq in squares())
 
-def play(black_strategy, white_strategy, trainer):
+def play(black_strategy, white_strategy, trainer=False):
   board = initial_board()
   player = BLACK
   turn = 1
-  strategy = lambda who: black_strategy if who == BLACK else         white_strategy
+  strategy = lambda who: black_strategy if who == BLACK else white_strategy
   while player is not None:
-    if trainer: print(f"{PLAYERS[player]} to move, turn {turn}")
+    if trainer == False: print(f"{PLAYERS[player]} to move, turn {turn}")
     move = get_move(strategy(player), player, board)
     make_move(move, player, board)
-    print(print_board(board))  # Print the board after each move
+    print(print_board(board, trainer))  # Print the board after each move
     player = next_player(board, player)
     turn += 1  # Increment turn counter
   return board, score(BLACK, board)

@@ -7,18 +7,6 @@ from tensorflow.keras import layers, models
 from game import initial_board, play, maximizer, weighted_score
 from game.game import OUTER
 
-# helper board convert function
-def convert_board_to_array(board):
-    mapping = {'.': 0, 'o': 1, '@': -1}
-
-    # Remove the numbers round the edge
-    board = [row[2:10] for row in board[1:9]]
-
-    # Convert characters to numerical values using the mapping
-    board_array = [[mapping[cell] for cell in row] for row in board]
-
-    return board_array
-
 # Define the neural network model
 def create_model(input_size):
     model = models.Sequential([
@@ -33,7 +21,6 @@ def create_model(input_size):
 # Convert Othello board to a flat representation
 def board_to_input(board):
     flattened_board = np.array([sq for sq in board if sq != OUTER]).flatten()
-    print("Flattened Board:", flattened_board)
     return flattened_board
 
 # Generate training data using the game simulation
@@ -42,7 +29,7 @@ def generate_training_data(num_games=100):
 
     for _ in range(num_games):
         board = initial_board()
-        _, final_score = play(maximizer(weighted_score), maximizer(weighted_score), False)
+        _, final_score = play(maximizer(weighted_score), maximizer(weighted_score), True)
 
         # Flatten the board and add it to the input data
         X_train.append(board_to_input(board))
