@@ -75,13 +75,13 @@ def legal_moves(player, board):
 def any_legal_move(player, board):
     return any(is_legal(sq, player, board) for sq in squares())
 
-def play(black_strategy, white_strategy):
+def play(black_strategy, white_strategy, trainer):
   board = initial_board()
   player = BLACK
   turn = 1
   strategy = lambda who: black_strategy if who == BLACK else         white_strategy
   while player is not None:
-    print(f"{PLAYERS[player]} to move, turn {turn}")
+    if trainer: print(f"{PLAYERS[player]} to move, turn {turn}")
     move = get_move(strategy(player), player, board)
     make_move(move, player, board)
     print(print_board(board))  # Print the board after each move
