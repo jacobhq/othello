@@ -1,4 +1,3 @@
-# initial code from https://dhconnelly.com/paip-python/docs/paip/othello.html
 import random
 
 EMPTY, BLACK, WHITE, OUTER = '.', '@', 'o', '?'
@@ -77,14 +76,18 @@ def any_legal_move(player, board):
     return any(is_legal(sq, player, board) for sq in squares())
 
 def play(black_strategy, white_strategy):
-    board = initial_board()
-    player = BLACK
-    strategy = lambda who: black_strategy if who == BLACK else white_strategy
-    while player is not None:
-        move = get_move(strategy(player), player, board)
-        make_move(move, player, board)
-        player = next_player(board, player)
-    return board, score(BLACK, board)
+  board = initial_board()
+  player = BLACK
+  turn = 1
+  strategy = lambda who: black_strategy if who == BLACK else         white_strategy
+  while player is not None:
+    print(f"{PLAYERS[player]} to move, turn {turn}")
+    move = get_move(strategy(player), player, board)
+    make_move(move, player, board)
+    print(print_board(board))  # Print the board after each move
+    player = next_player(board, player)
+    turn += 1  # Increment turn counter
+  return board, score(BLACK, board)
 
 def next_player(board, prev_player):
     opp = opponent(prev_player)
@@ -176,13 +179,13 @@ def alphabeta(player, board, alpha, beta, depth, evaluate):
         return evaluate(player, board), None
     def value(board, alpha, beta):
         return -alphabeta(opponent(player), board, -beta, -alpha, depth-1, evaluate)[0]
-    
+
     moves = legal_moves(player, board)
     if not moves:
         if not any_legal_move(opponent(player), board):
             return final_value(player, board), None
         return value(board, alpha, beta), None
-    
+
     best_move = moves[0]
     for move in moves:
         if alpha >= beta:
@@ -198,6 +201,24 @@ def alphabeta_searcher(depth, evaluate):
         return alphabeta(player, board, MIN_VALUE, MAX_VALUE, depth, evaluate)[1]
     return strategy
 
-board = initial_board()
-test = print_board(board)
-print(test)
+def human_strategy(player, board):
+  print(print_board(board))
+  print(f"{PLAYERS[player]} to move.")
+  
+  # Get user input for x and y coordinates
+  try:
+    x = int(input("Enter the x coordinate (1-8): "))
+    y = int(input("Enter the y coordinate (1-8): "))
+  except ValueError:
+    print("Invalid input. Please enter valid integers.")
+    return human_strategy(player, board)
+
+  # Convert coordinates to square number
+  move = 10 * y + x
+
+  # Validate the move
+  if not is_valid(move) or not is_legal(move, player, board):
+    print("Invalid move. Try again.")
+    return human_strategy(player, board)
+
+  return move
