@@ -1,4 +1,4 @@
-from game import play, human_strategy, maximizer, weighted_score
+from game import play, human_strategy, maximizer, print_board, weighted_score
 
 # Define the strategies for the human and computer players
 human_player_strategy = human_strategy
