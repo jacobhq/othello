@@ -7,6 +7,18 @@ from tensorflow.keras import layers, models
 from game import initial_board, play, maximizer, weighted_score
 from game.game import OUTER
 
+# helper board convert function
+def convert_board_to_array(board):
+    mapping = {'.': 0, 'o': 1, '@': -1}
+
+    # Remove the numbers round the edge
+    board = [row[2:10] for row in board[1:9]]
+
+    # Convert characters to numerical values using the mapping
+    board_array = [[mapping[cell] for cell in row] for row in board]
+
+    return board_array
+
 # Define the neural network model
 def create_model(input_size):
     model = models.Sequential([
