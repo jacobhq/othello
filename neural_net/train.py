@@ -16,6 +16,11 @@ def create_neural_network(input_shape):
     ])
     return model
 
+def neural_network_strategy(player, board):
+    # Implement logic to use the neural network to predict the next move
+    # You will need to replace this with your actual neural network inference logic
+    return random.choice(legal_moves(player, board))
+
 def generate_training_data(num_samples, black_strategy, white_strategy):
     X_train = []  # List to store numeric board states
     y_train = []  # List to store corresponding next moves
@@ -25,7 +30,7 @@ def generate_training_data(num_samples, black_strategy, white_strategy):
         player = BLACK  # Start with the Black player
 
         while player is not None:
-            move = get_move(strategy(player, board), player, board)
+            move = get_move(neural_network_strategy(player, board), player, board)
 
             # Save the current board state and the corresponding next move
             X_train.append(convert_board_numeric(board))

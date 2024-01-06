@@ -1,3 +1,6 @@
+import sys
+sys.path.append('../game')
+
 import random
 
 EMPTY, BLACK, WHITE, OUTER = '.', '@', 'o', '?'
