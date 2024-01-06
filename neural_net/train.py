@@ -1,64 +1,64 @@
-import sys
-sys.path.append('.')
+# neural_network.py
 
-import numpy as np
+import random
 import tensorflow as tf
-from tensorflow.keras import layers, models
-from game import initial_board, play, maximizer, weighted_score
-from game.game import OUTER
+from sklearn.model_selection import train_test_split
+from game.game import *
 
-# Define the neural network model
-def create_model(input_size):
-    model = models.Sequential([
-        layers.Dense(128, activation='relu', input_shape=(input_size,)),
-        layers.Dense(64, activation='relu'),
-        layers.Dense(1, activation='linear')  # Assuming regression for Q-value estimation
+def convert_board_numeric(board):
+    return [0 if char == '?' else 1 if char == '@' else -1 for char in board]
+
+def create_neural_network(input_shape):
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(64, activation='relu', input_shape=(input_shape,)),
+        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dense(len(squares()), activation='softmax')
     ])
-
-    model.compile(optimizer='adam', loss='mean_squared_error')
     return model
 
-# Convert Othello board to a flat representation
-def board_to_input(board):
-    flattened_board = np.array([sq for sq in board if sq != OUTER]).flatten()
-    return flattened_board
+def generate_training_data(num_samples, black_strategy, white_strategy):
+    X_train = []  # List to store numeric board states
+    y_train = []  # List to store corresponding next moves
 
-# Generate training data using the game simulation
-def generate_training_data(num_games=100):
-    X_train, y_train = [], []
+    for _ in range(num_samples):
+        board = initial_board()  # Start with the initial board
+        player = BLACK  # Start with the Black player
 
-    for _ in range(num_games):
-        board = initial_board()
-        _, final_score = play(maximizer(weighted_score), maximizer(weighted_score), True)
+        while player is not None:
+            move = get_move(strategy(player, board), player, board)
 
-        # Flatten the board and add it to the input data
-        X_train.append(board_to_input(board))
+            # Save the current board state and the corresponding next move
+            X_train.append(convert_board_numeric(board))
+            y_train.append(move)
 
-        # Use the final score as the target Q-value
-        y_train.append(final_score)
+            make_move(move, player, board)  # Make the move on the board
+            player = next_player(board, player)  # Switch to the next player
 
-    return np.array(X_train), np.array(y_train)
+    return X_train, y_train
 
-def train_and_save_model():
-    # Define input size based on the flattened board representation
-    input_size = 100
+def train_neural_network(X_train, y_train):
+    model = create_neural_network(len(X_train[0]))
 
-    # Create the neural network model
-    model = create_model(input_size)
+    # Compile the model
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
-    # Generate training data using game simulation
-    X_train, y_train = generate_training_data(num_games=100)
+    # Data splitting
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
 
-    # Train the model
-    model.fit(X_train, y_train, epochs=10, batch_size=32, validation_split=0.2)
+    # Training
+    model.fit(X_train, y_train, epochs=10, validation_data=(X_val, y_val))
 
-    # Convert the model to TensorFlow Lite format
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    tflite_model = converter.convert()
+    # Evaluation (optional)
+    loss, accuracy = model.evaluate(X_val, y_val)
+    print(f'Validation Loss: {loss}, Validation Accuracy: {accuracy}')
 
-    # Save the TensorFlow Lite model to a file
-    with open('othello_model.tflite', 'wb') as f:
-        f.write(tflite_model)
+    return model
 
+# ... (Other utility functions related to the neural network, if needed)
+
+# Train the neural network when this module is executed directly
 if __name__ == "__main__":
-    train_and_save_model()
+    num_samples = 1000
+    X_train, y_train = generate_training_data(num_samples, random_strategy, random_strategy)
+    trained_model = train_neural_network(X_train, y_train)
+    # You can save the trained model if needed: trained_model.save("othello_neural_network_model")
