@@ -1,4 +1,5 @@
 from game import play, maximizer, weighted_score, random_strategy, print_board
+from game import convert_board_numeric
 
 # Define strategies for both players using the random_strategy function (comp vs comp)
 black_strategy = maximizer(weighted_score)
@@ -11,6 +12,7 @@ final_board, final_score = play(black_strategy, white_strategy)
 print("Final board:")
 print(print_board(final_board))
 print(f"Final Score: {final_score}")
+print(convert_board_numeric(final_board))
 
 # Determine the winner and print the result
 if final_score > 0:
