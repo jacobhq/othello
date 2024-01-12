@@ -1,6 +1,5 @@
 import sys
 sys.path.append('../game')
-
 import random
 
 EMPTY, BLACK, WHITE, OUTER = '.', '@', 'o', '?'
@@ -12,11 +11,15 @@ UP_RIGHT, DOWN_RIGHT, DOWN_LEFT, UP_LEFT = -9, 11, 9, -11
 DIRECTIONS = (UP, UP_RIGHT, RIGHT, DOWN_RIGHT, DOWN, DOWN_LEFT, LEFT, UP_LEFT)
 
 # helper function to convert board to numbers
+
+
 def convert_board_numeric(board):
-  return [0 if char == '?' else 1 if char == '@' else -1 for char in board]
+    return [0 if char == '?' else 1 if char == '@' else -1 for char in board]
+
 
 def squares():
     return [i for i in range(11, 89) if 1 <= (i % 10) <= 8]
+
 
 def initial_board():
     board = [OUTER] * 100
@@ -26,8 +29,9 @@ def initial_board():
     board[54], board[55] = BLACK, WHITE
     return board
 
+
 def print_board(board, training=False):
-    if training: 
+    if training:
         return convert_board_numeric(board)
     rep = ''
     rep += '  %s\n' % ' '.join(map(str, range(1, 9)))
@@ -36,11 +40,14 @@ def print_board(board, training=False):
         rep += '%d %s\n' % (row, ' '.join(board[begin:end]))
     return rep
 
+
 def is_valid(move):
     return isinstance(move, int) and move in squares()
 
+
 def opponent(player):
     return BLACK if player is WHITE else WHITE
+
 
 def find_bracket(square, player, board, direction):
     bracket = square + direction
@@ -51,15 +58,19 @@ def find_bracket(square, player, board, direction):
         bracket += direction
     return None if board[bracket] in (OUTER, EMPTY) else bracket
 
+
 def is_legal(move, player, board):
-    hasbracket = lambda direction: find_bracket(move, player, board, direction)
+    def hasbracket(direction): return find_bracket(
+        move, player, board, direction)
     return board[move] == EMPTY and any(map(hasbracket, DIRECTIONS))
+
 
 def make_move(move, player, board):
     board[move] = player
     for d in DIRECTIONS:
         make_flips(move, player, board, d)
     return board
+
 
 def make_flips(move, player, board, direction):
     bracket = find_bracket(move, player, board, direction)
@@ -70,33 +81,43 @@ def make_flips(move, player, board, direction):
         board[square] = player
         square += direction
 
+
 class IllegalMoveError(Exception):
     def __init__(self, player, move, board):
         self.player = player
         self.move = move
         self.board = board
+
     def __str__(self):
         return '%s cannot move to square %d' % (PLAYERS[self.player], self.move)
+
 
 def legal_moves(player, board):
     return [sq for sq in squares() if is_legal(sq, player, board)]
 
+
 def any_legal_move(player, board):
     return any(is_legal(sq, player, board) for sq in squares())
 
+
 def play(black_strategy, white_strategy, trainer=False):
-  board = initial_board()
-  player = BLACK
-  turn = 1
-  strategy = lambda who: black_strategy if who == BLACK else white_strategy
-  while player is not None:
-    if trainer == False: print(f"{PLAYERS[player]} to move, turn {turn}")
-    move = get_move(strategy(player), player, board)
-    make_move(move, player, board)
-    print(print_board(board, trainer))  # Print the board after each move
-    player = next_player(board, player)
-    turn += 1  # Increment turn counter
-  return board, score(BLACK, board)
+    board = initial_board()
+    player = BLACK
+    turn = 1
+    def strategy(
+        who): return black_strategy if who == BLACK else white_strategy
+    while player is not None:
+        if trainer == False:
+            print(f"{PLAYERS[player]} to move, turn {turn}")
+        move = get_move(strategy(player), player, board)
+        make_move(move, player, board)
+        print(print_board(board, trainer))  # Print the board after each move
+        player = next_player(board, player)
+        turn += 1  # Increment turn counter
+    if trainer:
+        return board
+    return board, score(BLACK, board)
+
 
 def next_player(board, prev_player):
     opp = opponent(prev_player)
@@ -106,24 +127,30 @@ def next_player(board, prev_player):
         return prev_player
     return None
 
+
 def get_move(strategy, player, board):
-    copy = list(board) # copy the board to prevent cheating
+    copy = list(board)  # copy the board to prevent cheating
     move = strategy(player, copy)
     if not is_valid(move) or not is_legal(move, player, board):
         raise IllegalMoveError(player, move, copy)
     return move
+
 
 def score(player, board):
     mine, theirs = 0, 0
     opp = opponent(player)
     for sq in squares():
         piece = board[sq]
-        if piece == player: mine += 1
-        elif piece == opp: theirs += 1
+        if piece == player:
+            mine += 1
+        elif piece == opp:
+            theirs += 1
     return mine - theirs
+
 
 def random_strategy(player, board):
     return random.choice(legal_moves(player, board))
+
 
 def maximizer(evaluate):
     def strategy(player, board):
@@ -131,6 +158,7 @@ def maximizer(evaluate):
             return evaluate(player, make_move(move, player, list(board)))
         return max(legal_moves(player, board), key=score_move)
     return strategy
+
 
 SQUARE_WEIGHTS = [
     0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
@@ -145,6 +173,7 @@ SQUARE_WEIGHTS = [
     0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 ]
 
+
 def weighted_score(player, board):
     opp = opponent(player)
     total = 0
@@ -154,6 +183,7 @@ def weighted_score(player, board):
         elif board[sq] == opp:
             total -= SQUARE_WEIGHTS[sq]
     return total
+
 
 def minimax(player, board, depth, evaluate):
     def value(board):
@@ -167,8 +197,10 @@ def minimax(player, board, depth, evaluate):
         return value(board), None
     return max((value(make_move(m, player, list(board))), m) for m in moves)
 
+
 MAX_VALUE = sum(map(abs, SQUARE_WEIGHTS))
 MIN_VALUE = -MAX_VALUE
+
 
 def final_value(player, board):
     diff = score(player, board)
@@ -178,14 +210,17 @@ def final_value(player, board):
         return MAX_VALUE
     return diff
 
+
 def minimax_searcher(depth, evaluate):
     def strategy(player, board):
         return minimax(player, board, depth, evaluate)[1]
     return strategy
 
+
 def alphabeta(player, board, alpha, beta, depth, evaluate):
     if depth == 0:
         return evaluate(player, board), None
+
     def value(board, alpha, beta):
         return -alphabeta(opponent(player), board, -beta, -alpha, depth-1, evaluate)[0]
 
@@ -205,29 +240,31 @@ def alphabeta(player, board, alpha, beta, depth, evaluate):
             best_move = move
     return alpha, best_move
 
+
 def alphabeta_searcher(depth, evaluate):
     def strategy(player, board):
         return alphabeta(player, board, MIN_VALUE, MAX_VALUE, depth, evaluate)[1]
     return strategy
 
+
 def human_strategy(player, board):
-  print(print_board(board))
-  print(f"{PLAYERS[player]} to move.")
-  
-  # Get user input for x and y coordinates
-  try:
-    x = int(input("Enter the x coordinate (1-8): "))
-    y = int(input("Enter the y coordinate (1-8): "))
-  except ValueError:
-    print("Invalid input. Please enter valid integers.")
-    return human_strategy(player, board)
+    print(print_board(board))
+    print(f"{PLAYERS[player]} to move.")
 
-  # Convert coordinates to square number
-  move = 10 * y + x
+    # Get user input for x and y coordinates
+    try:
+        x = int(input("Enter the x coordinate (1-8): "))
+        y = int(input("Enter the y coordinate (1-8): "))
+    except ValueError:
+        print("Invalid input. Please enter valid integers.")
+        return human_strategy(player, board)
 
-  # Validate the move
-  if not is_valid(move) or not is_legal(move, player, board):
-    print("Invalid move. Try again.")
-    return human_strategy(player, board)
+    # Convert coordinates to square number
+    move = 10 * y + x
 
-  return move
+    # Validate the move
+    if not is_valid(move) or not is_legal(move, player, board):
+        print("Invalid move. Try again.")
+        return human_strategy(player, board)
+
+    return move
