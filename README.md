@@ -1,5 +1,5 @@
 # othello
-Othello in python, some kind of AI as well.
+Othello in python, with a goal to learn with (reinforcement) neural nets, using tensorflow (agents?)
 
 ### Milestones
 - [x] Game validation logic
