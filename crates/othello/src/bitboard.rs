@@ -1,5 +1,8 @@
+use derive_more::{BitOr, BitOrAssign, BitAnd, Not, Shl, Shr};
+
 /// A single 8×8 bitboard represented by a 64-bit integer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BitOr, BitOrAssign, BitAnd, Not, Shl, Shr)]
+#[repr(transparent)]
 pub struct BitBoard(pub u64);
 
 impl BitBoard {
@@ -29,6 +32,10 @@ impl BitBoard {
     pub fn clear(&mut self, row: usize, col: usize) {
         self.0 &= !Self::mask(row, col);
     }
+}
+
+impl From<BitBoard> for u64 {
+    fn from(bb: BitBoard) -> u64 { bb.0 }
 }
 
 #[cfg(test)]
