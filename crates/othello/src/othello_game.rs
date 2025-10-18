@@ -120,6 +120,144 @@ impl OthelloGame {
 
         moves
     }
+
+    /// Play a move for the given player. Returns false if illegal.
+    pub fn play(&mut self, row: usize, col: usize, player: Color) -> bool {
+        if self.legal_moves_mask(self.current_turn) == BitBoard(0) {
+            let next = match self.current_turn {
+                Color::Black => Color::White,
+                Color::White => Color::Black,
+            };
+            self.current_turn = next;
+            return false;
+        }
+        let move_mask: BitBoard = BitBoard(BitBoard::mask(row, col));
+        if self.current_turn != player {
+            return false;
+        }
+        if self.legal_moves_mask(player) & move_mask == BitBoard(0) {
+            self.current_turn = player;
+            return false;
+        }
+
+        let (mut me, mut opp) = match player {
+            Color::Black => (self.black, self.white),
+            Color::White => (self.white, self.black),
+        };
+
+        let mut flips: BitBoard = BitBoard(0);
+
+        let directions: [(i64, BitBoard); 8] = [
+            (8, BitBoard(0xffffffffffffffffu64)),
+            (-8, BitBoard(0xffffffffffffffffu64)),
+            (1, NOT_A_FILE),
+            (-1, NOT_H_FILE),
+            (9, NOT_A_FILE),
+            (7, NOT_H_FILE),
+            (-7, NOT_A_FILE),
+            (-9, NOT_H_FILE),
+        ];
+
+        for (shift, mask) in directions {
+            let mut captured = BitBoard(0);
+            let mut candidate = match shift {
+                s if s > 0 => move_mask << s & opp & mask,
+                s if s < 0 => move_mask >> -s & opp & mask,
+                _ => BitBoard(0),
+            };
+
+            while candidate != BitBoard(0) {
+                captured |= candidate;
+                candidate = match shift {
+                    s if s > 0 => candidate << s & mask,
+                    s if s < 0 => candidate >> -s & mask,
+                    _ => BitBoard(0),
+                };
+
+                if candidate & me != BitBoard(0) {
+                    flips |= captured;
+                    break;
+                }
+            }
+        }
+
+        me |= move_mask | flips;
+        opp &= !flips;
+
+        match player {
+            Color::Black => {
+                self.black = me;
+                self.white = opp;
+            }
+            Color::White => {
+                self.white = me;
+                self.black = opp;
+            }
+        }
+
+        // *** New code to update current_turn ***
+        let next_player = match player {
+            Color::Black => Color::White,
+            Color::White => Color::Black,
+        };
+        if self.legal_moves_mask(next_player) != BitBoard(0) {
+            // Opponent has a move: switch turn
+            self.current_turn = next_player;
+        } else if self.legal_moves_mask(player) != BitBoard(0) {
+            // Opponent has no moves but current player does: stay on current player
+            self.current_turn = player;
+        }
+
+        true
+    }
+
+    pub fn score(&self) -> (u32, u32) {
+        (self.white.0.count_ones(), self.black.0.count_ones())
+    }
+
+    pub fn game_over(&self) -> bool {
+        self.legal_moves_mask(Color::Black) == BitBoard(0) && self.legal_moves_mask(Color::White) == BitBoard(0)
+    }
+
+    pub fn encode(&self, player: Color) -> [[ [i32; 8]; 8]; 2] {
+        let mut state = [[[0; 8]; 8]; 2];
+        for row in 0..8 {
+            for col in 0..8 {
+                if let Some(c) = self.get(row, col) {
+                    match (player, c) {
+                        (Color::White, Color::White) | (Color::Black, Color::Black) => {
+                            state[0][row][col] = 1; // me
+                        }
+                        (Color::White, Color::Black) | (Color::Black, Color::White) => {
+                            state[1][row][col] = 1; // opponent
+                        }
+                    }
+                }
+            }
+        }
+        state
+    }
+}
+
+impl std::fmt::Display for OthelloGame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "  0 1 2 3 4 5 6 7")?;
+        for row in 0..8 {
+            write!(f, "{} ", row)?;
+            for col in 0..8 {
+                let m = BitBoard::mask(row, col);
+                if self.black & BitBoard(m) != BitBoard(0) {
+                    write!(f, "● ")?;
+                } else if self.white & BitBoard(m) != BitBoard(0) {
+                    write!(f, "○ ")?;
+                } else {
+                    write!(f, ". ")?;
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -201,4 +339,143 @@ mod tests {
 
         assert_eq!(moves, from_mask);
     }
+
+    #[test]
+    fn test_play_valid_move_and_flips() {
+        let mut game = OthelloGame::new();
+        // Black plays at (2,3) — should flip (3,3)
+        assert!(game.play(2, 3, Color::Black));
+        assert_eq!(game.get(2, 3), Some(Color::Black));
+        assert_eq!(game.get(3, 3), Some(Color::Black));
+    }
+
+    #[test]
+    fn test_play_illegal_move_outside_legal_moves() {
+        let mut game = OthelloGame::new();
+        // (0,0) is not a legal move initially
+        assert!(!game.play(0, 0, Color::Black));
+    }
+
+    #[test]
+    fn test_play_illegal_wrong_turn() {
+        let mut game = OthelloGame::new();
+        // It’s Black’s turn initially, so White can’t play
+        assert!(!game.play(2, 4, Color::White));
+    }
+
+    #[test]
+    fn test_play_no_flips_does_not_change_board() {
+        let mut game = OthelloGame::new();
+        let before_black = game.black;
+        let before_white = game.white;
+        // Even if it’s Black’s turn, (0,0) won’t flip any pieces
+        assert!(!game.play(0, 0, Color::Black));
+        assert_eq!(game.black, before_black);
+        assert_eq!(game.white, before_white);
+    }
+
+    #[test]
+    fn test_play_flips_in_multiple_directions() {
+        let mut game = OthelloGame::new();
+        // Set up a custom board for a multi-direction flip test
+        game.black = BitBoard(0);
+        game.white = BitBoard(0);
+        // Form a cross of White pieces with a Black center
+        game.black.set(3, 3);
+        for &(r, c) in &[(2, 3), (4, 3), (3, 2), (3, 4)] {
+            game.white.set(r, c);
+        }
+        // Black plays (3,5) → should flip (3,4)
+        assert!(game.play(3, 5, Color::Black));
+        assert_eq!(game.get(3, 4), Some(Color::Black));
+        assert_eq!(game.get(3, 5), Some(Color::Black));
+    }
+
+    #[test]
+    fn test_play_fills_board_and_detects_game_over() {
+        let mut game = OthelloGame::new();
+        // Artificially fill the board
+        game.black = BitBoard(u64::MAX);
+        game.white = BitBoard(0);
+        assert!(game.game_over());
+    }
+
+    #[test]
+    fn test_score_counts_correctly() {
+        let mut game = OthelloGame::new();
+        // Initially both have 2 pieces
+        assert_eq!(game.score(), (2, 2));
+        // Add more black pieces manually
+        game.black.set(0, 0);
+        game.black.set(0, 1);
+        assert_eq!(game.score(), (2, 4));
+    }
+
+    #[test]
+    fn test_encode_shape_and_values_for_black() {
+        let game = OthelloGame::new();
+        let encoded = game.encode(Color::Black);
+        // Shape should be [2][8][8]
+        assert_eq!(encoded.len(), 2);
+        assert_eq!(encoded[0].len(), 8);
+        assert_eq!(encoded[0][0].len(), 8);
+        // Check that (3,4) is "me" for black
+        assert_eq!(encoded[0][3][4], 1);
+        // Check that (3,3) is "opponent"
+        assert_eq!(encoded[1][3][3], 1);
+    }
+
+    #[test]
+    fn test_encode_shape_and_values_for_white() {
+        let game = OthelloGame::new();
+        let encoded = game.encode(Color::White);
+        // (3,3) is "me" for white
+        assert_eq!(encoded[0][3][3], 1);
+        // (3,4) is "opponent" for white
+        assert_eq!(encoded[1][3][4], 1);
+    }
+
+    #[test]
+    fn test_no_moves_for_both_players_game_over() {
+        let mut game = OthelloGame::new();
+        // Fill board fully to disable all moves
+        game.black = BitBoard(u64::MAX);
+        game.white = BitBoard(0);
+        assert!(game.game_over());
+    }
+
+    #[test]
+    fn test_partial_game_not_over() {
+        let game = OthelloGame::new();
+        assert!(!game.game_over());
+    }
+
+    #[test]
+    fn test_turn_pass_when_opponent_has_no_moves() {
+        let mut game = OthelloGame {
+            black: BitBoard(0b10111111_10000001_10000001_10000001_10000001_10000001_10000001_01111111),
+            white: BitBoard(0b01000000_01111110_01111110_01111110_01111110_01111110_01111110_00000000),
+            current_turn: Color::White,
+        };
+
+        println!("{}", game);
+
+        assert_eq!(game.current_turn, Color::White);
+        let turn_one = game.play(0, 0, Color::White);
+        assert!(!turn_one, "Move should be illegal");
+
+        assert_eq!(game.current_turn, Color::Black);
+        let turn_two = game.play(0, 0, Color::Black);
+        assert!(turn_two, "Move should be legal");
+
+        assert_eq!(game.get(0, 0), Some(Color::Black));
+        assert_eq!(
+            game.current_turn,
+            Color::White,
+            "Black has no legal moves, turn should remain White"
+        );
+
+        assert!(!game.legal_moves(Color::White).is_empty());
+    }
+
 }

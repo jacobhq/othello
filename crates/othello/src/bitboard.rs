@@ -1,7 +1,7 @@
-use derive_more::{BitOr, BitOrAssign, BitAnd, Not, Shl, Shr};
+use derive_more::{BitOr, BitOrAssign, BitAnd, BitAndAssign, Not, Shl, Shr};
 
 /// A single 8×8 bitboard represented by a 64-bit integer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BitOr, BitOrAssign, BitAnd, Not, Shl, Shr)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BitOr, BitOrAssign, BitAnd, BitAndAssign, Not, Shl, Shr)]
 #[repr(transparent)]
 pub struct BitBoard(pub u64);
 
@@ -14,7 +14,7 @@ impl BitBoard {
 
     /// Returns a bit mask (`u64`) with a single bit set at the given (row, col).
     #[inline]
-    fn mask(row: usize, col: usize) -> u64 {
+    pub(crate) fn mask(row: usize, col: usize) -> u64 {
         1u64 << Self::index(row, col)
     }
 
