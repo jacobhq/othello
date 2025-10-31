@@ -1,10 +1,12 @@
+use std::fmt::{Display, Formatter};
 use crate::bitboard::BitBoard;
 
+/// An error enum to represent which error has occurred in the game
 #[derive(Debug, PartialEq)]
 pub enum OthelloError {
     NoMovesForPlayer,
     NotYourTurn,
-    IllegalMove
+    IllegalMove,
 }
 
 /// A color enum to represent white and black
@@ -12,6 +14,17 @@ pub enum OthelloError {
 pub enum Color {
     White,
     Black,
+}
+
+impl Display for Color {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::White => write!(f, "● White")?,
+            Self::Black => write!(f, "○ Black")?
+        }
+
+        Ok(())
+    }
 }
 
 // Masks to prevent wrapping when shifting
@@ -248,9 +261,9 @@ impl std::fmt::Display for OthelloGame {
             for col in 0..8 {
                 let m = BitBoard::mask(row, col);
                 if self.black & BitBoard(m) != BitBoard(0) {
-                    write!(f, "● ")?;
-                } else if self.white & BitBoard(m) != BitBoard(0) {
                     write!(f, "○ ")?;
+                } else if self.white & BitBoard(m) != BitBoard(0) {
+                    write!(f, "● ")?;
                 } else {
                     write!(f, ". ")?;
                 }
@@ -361,7 +374,10 @@ mod tests {
     fn test_play_illegal_wrong_turn() {
         let mut game = OthelloGame::new();
         // It’s Black’s turn initially, so White can’t play
-        assert_eq!(game.play(2, 4, Color::White).unwrap_err(), OthelloError::NotYourTurn);
+        assert_eq!(
+            game.play(2, 4, Color::White).unwrap_err(),
+            OthelloError::NotYourTurn
+        );
     }
 
     #[test]
@@ -370,7 +386,10 @@ mod tests {
         let before_black = game.black;
         let before_white = game.white;
         // Even if it’s Black’s turn, (0,0) won’t flip any pieces
-        assert_eq!(game.play(0, 0, Color::Black).unwrap_err(), OthelloError::IllegalMove);
+        assert_eq!(
+            game.play(0, 0, Color::Black).unwrap_err(),
+            OthelloError::IllegalMove
+        );
         assert_eq!(game.black, before_black);
         assert_eq!(game.white, before_white);
     }

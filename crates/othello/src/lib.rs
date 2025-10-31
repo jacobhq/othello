@@ -1,5 +1,5 @@
 mod bitboard;
-mod othello_game;
+pub mod othello_game;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
