@@ -466,13 +466,17 @@ mod tests {
         println!("{}", game);
 
         assert_eq!(game.current_turn, Color::White);
-        let turn_one = game.play(0, 0, Color::White);
+        let turn_one = game.play(0, 7, Color::White);
         assert!(!turn_one, "Move should be illegal");
 
+        println!("{}", game);
+        
         assert_eq!(game.current_turn, Color::Black);
         let turn_two = game.play(0, 7, Color::Black);
         assert!(turn_two, "Move should be legal");
 
+        println!("{}", game);
+        
         assert_eq!(game.get(0, 7), Some(Color::Black));
         assert_eq!(
             game.current_turn,
@@ -481,6 +485,7 @@ mod tests {
         );
 
         assert!(game.legal_moves(Color::White).is_empty());
+        assert!(game.legal_moves(Color::Black).is_empty());
     }
 
 }
