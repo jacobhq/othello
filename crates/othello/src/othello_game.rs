@@ -72,12 +72,12 @@ impl OthelloGame {
         let directions: [(i64, BitBoard); 8] = [
             (8, BitBoard(0xffffffffffffffff)),  // north
             (-8, BitBoard(0xffffffffffffffff)), // south
-            (1, NOT_A_FILE),                    // east
-            (-1, NOT_H_FILE),                   // west
-            (9, NOT_A_FILE),                    // northeast
-            (7, NOT_H_FILE),                    // northwest
-            (-7, NOT_A_FILE),                   // southeast
-            (-9, NOT_H_FILE),                   // southwest
+            (1, NOT_H_FILE),                    // east
+            (-1, NOT_A_FILE),                   // west
+            (9, NOT_H_FILE),                    // northeast
+            (7, NOT_A_FILE),                    // northwest
+            (-7, NOT_H_FILE),                   // southeast
+            (-9, NOT_A_FILE),                   // southwest
         ];
 
         for (shift, mask) in directions {
@@ -150,32 +150,37 @@ impl OthelloGame {
         let directions: [(i64, BitBoard); 8] = [
             (8, BitBoard(0xffffffffffffffffu64)),
             (-8, BitBoard(0xffffffffffffffffu64)),
-            (1, NOT_A_FILE),
-            (-1, NOT_H_FILE),
-            (9, NOT_A_FILE),
-            (7, NOT_H_FILE),
-            (-7, NOT_A_FILE),
-            (-9, NOT_H_FILE),
+            (1, NOT_H_FILE),
+            (-1, NOT_A_FILE),
+            (9, NOT_H_FILE),
+            (7, NOT_A_FILE),
+            (-7, NOT_H_FILE),
+            (-9, NOT_A_FILE),
         ];
 
         for (shift, mask) in directions {
             let mut captured = BitBoard(0);
             let mut candidate = match shift {
-                s if s > 0 => move_mask << s & opp & mask,
-                s if s < 0 => move_mask >> -s & opp & mask,
+                s if s > 0 => (move_mask << s) & opp & mask,
+                s if s < 0 => (move_mask >> -s) & opp & mask,
                 _ => BitBoard(0),
             };
 
             while candidate != BitBoard(0) {
                 captured |= candidate;
-                candidate = match shift {
-                    s if s > 0 => candidate << s & mask,
-                    s if s < 0 => candidate >> -s & mask,
+                let next = match shift {
+                    s if s > 0 => (candidate << s) & mask,
+                    s if s < 0 => (candidate >> -s) & mask,
                     _ => BitBoard(0),
                 };
 
-                if candidate & me != BitBoard(0) {
+                if next & opp != BitBoard(0) {
+                    candidate = next & opp;
+                    continue;
+                } else if next & me != BitBoard(0) {
                     flips |= captured;
+                    break;
+                } else {
                     break;
                 }
             }
@@ -465,17 +470,17 @@ mod tests {
         assert!(!turn_one, "Move should be illegal");
 
         assert_eq!(game.current_turn, Color::Black);
-        let turn_two = game.play(0, 0, Color::Black);
+        let turn_two = game.play(0, 7, Color::Black);
         assert!(turn_two, "Move should be legal");
 
-        assert_eq!(game.get(0, 0), Some(Color::Black));
+        assert_eq!(game.get(0, 7), Some(Color::Black));
         assert_eq!(
             game.current_turn,
-            Color::White,
-            "Black has no legal moves, turn should remain White"
+            Color::Black,
+            "White has no legal moves, turn should remain Black"
         );
 
-        assert!(!game.legal_moves(Color::White).is_empty());
+        assert!(game.legal_moves(Color::White).is_empty());
     }
 
 }
