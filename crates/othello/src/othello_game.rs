@@ -1,5 +1,12 @@
 use crate::bitboard::BitBoard;
 
+#[derive(Debug, PartialEq)]
+pub enum OthelloError {
+    NoMovesForPlayer,
+    NotYourTurn,
+    IllegalMove
+}
+
 /// A color enum to represent white and black
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Color {
@@ -113,22 +120,22 @@ impl OthelloGame {
     }
 
     /// Play a move for the given player. Returns false if illegal.
-    pub fn play(&mut self, row: usize, col: usize, player: Color) -> bool {
+    pub fn play(&mut self, row: usize, col: usize, player: Color) -> Result<(), OthelloError> {
         if self.legal_moves_mask(self.current_turn) == BitBoard(0) {
             let next = match self.current_turn {
                 Color::Black => Color::White,
                 Color::White => Color::Black,
             };
             self.current_turn = next;
-            return false;
+            return Err(OthelloError::NoMovesForPlayer);
         }
         let move_mask: BitBoard = BitBoard(BitBoard::mask(row, col));
         if self.current_turn != player {
-            return false;
+            return Err(OthelloError::NotYourTurn);
         }
         if self.legal_moves_mask(player) & move_mask == BitBoard(0) {
             self.current_turn = player;
-            return false;
+            return Err(OthelloError::IllegalMove);
         }
 
         let (mut me, mut opp) = match player {
@@ -192,7 +199,7 @@ impl OthelloGame {
             self.current_turn = player;
         }
 
-        true
+        Ok(())
     }
 
     pub fn score(&self) -> (u32, u32) {
@@ -338,7 +345,7 @@ mod tests {
     fn test_play_valid_move_and_flips() {
         let mut game = OthelloGame::new();
         // Black plays at (2,3) — should flip (3,3)
-        assert!(game.play(2, 3, Color::Black));
+        assert!(game.play(2, 3, Color::Black).is_ok());
         assert_eq!(game.get(2, 3), Some(Color::Black));
         assert_eq!(game.get(3, 3), Some(Color::Black));
     }
@@ -347,14 +354,14 @@ mod tests {
     fn test_play_illegal_move_outside_legal_moves() {
         let mut game = OthelloGame::new();
         // (0,0) is not a legal move initially
-        assert!(!game.play(0, 0, Color::Black));
+        assert!(!game.play(0, 0, Color::Black).is_ok());
     }
 
     #[test]
     fn test_play_illegal_wrong_turn() {
         let mut game = OthelloGame::new();
         // It’s Black’s turn initially, so White can’t play
-        assert!(!game.play(2, 4, Color::White));
+        assert_eq!(game.play(2, 4, Color::White).unwrap_err(), OthelloError::NotYourTurn);
     }
 
     #[test]
@@ -363,7 +370,7 @@ mod tests {
         let before_black = game.black;
         let before_white = game.white;
         // Even if it’s Black’s turn, (0,0) won’t flip any pieces
-        assert!(!game.play(0, 0, Color::Black));
+        assert_eq!(game.play(0, 0, Color::Black).unwrap_err(), OthelloError::IllegalMove);
         assert_eq!(game.black, before_black);
         assert_eq!(game.white, before_white);
     }
@@ -380,7 +387,7 @@ mod tests {
             game.white.set(r, c);
         }
         // Black plays (3,5) → should flip (3,4)
-        assert!(game.play(3, 5, Color::Black));
+        assert!(game.play(3, 5, Color::Black).is_ok());
         assert_eq!(game.get(3, 4), Some(Color::Black));
         assert_eq!(game.get(3, 5), Some(Color::Black));
     }
@@ -460,13 +467,13 @@ mod tests {
 
         assert_eq!(game.current_turn, Color::White);
         let turn_one = game.play(0, 7, Color::White);
-        assert!(!turn_one, "Move should be illegal");
+        assert_eq!(turn_one.unwrap_err(), OthelloError::NoMovesForPlayer);
 
         println!("{}", game);
 
         assert_eq!(game.current_turn, Color::Black);
         let turn_two = game.play(0, 7, Color::Black);
-        assert!(turn_two, "Move should be legal");
+        assert!(turn_two.is_ok(), "Move should be legal");
 
         println!("{}", game);
 
