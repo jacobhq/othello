@@ -10,13 +10,23 @@ pub enum Color {
 // Masks to prevent wrapping when shifting
 const NOT_A_FILE: BitBoard = BitBoard(0xfefefefefefefefe);
 const NOT_H_FILE: BitBoard = BitBoard(0x7f7f7f7f7f7f7f7f);
+const DIRECTIONS: [(i64, BitBoard); 8] = [
+    (8, BitBoard(0xffffffffffffffff)),  // north
+    (-8, BitBoard(0xffffffffffffffff)), // south
+    (1, NOT_H_FILE),                    // east
+    (-1, NOT_A_FILE),                   // west
+    (9, NOT_H_FILE),                    // northeast
+    (7, NOT_A_FILE),                    // northwest
+    (-7, NOT_H_FILE),                   // southeast
+    (-9, NOT_A_FILE),                   // southwest
+];
 
 /// Represents a full Othello/Reversi board using two BitBoards.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OthelloGame {
     pub black: BitBoard,
     pub white: BitBoard,
-    pub current_turn: Color
+    pub current_turn: Color,
 }
 
 impl OthelloGame {
@@ -25,7 +35,7 @@ impl OthelloGame {
         let mut board = OthelloGame {
             black: BitBoard(0),
             white: BitBoard(0),
-            current_turn: Color::Black
+            current_turn: Color::Black,
         };
         board.set(3, 4, Color::Black);
         board.set(4, 3, Color::Black);
@@ -69,31 +79,12 @@ impl OthelloGame {
         let empty = !(me | opp);
         let mut moves = BitBoard(0);
 
-        let directions: [(i64, BitBoard); 8] = [
-            (8, BitBoard(0xffffffffffffffff)),  // north
-            (-8, BitBoard(0xffffffffffffffff)), // south
-            (1, NOT_H_FILE),                    // east
-            (-1, NOT_A_FILE),                   // west
-            (9, NOT_H_FILE),                    // northeast
-            (7, NOT_A_FILE),                    // northwest
-            (-7, NOT_H_FILE),                   // southeast
-            (-9, NOT_A_FILE),                   // southwest
-        ];
-
-        for (shift, mask) in directions {
-            let mut candidates = match shift {
-                s if s > 0 => (me << s) & opp & mask,
-                s if s < 0 => (me >> -s) & opp & mask,
-                _ => BitBoard(0),
-            };
+        for (shift, mask) in DIRECTIONS {
+            let mut candidates = Self::step_along(me, shift, mask) & opp;
 
             let mut flips = candidates;
             while candidates != BitBoard(0) {
-                candidates = match shift {
-                    s if s > 0 => (candidates << s) & opp & mask,
-                    s if s < 0 => (candidates >> -s) & opp & mask,
-                    _ => BitBoard(0),
-                };
+                candidates = Self::step_along(candidates, shift, mask) & opp;
                 flips |= candidates;
             }
 
@@ -147,18 +138,7 @@ impl OthelloGame {
 
         let mut flips: BitBoard = BitBoard(0);
 
-        let directions: [(i64, BitBoard); 8] = [
-            (8, BitBoard(0xffffffffffffffffu64)),
-            (-8, BitBoard(0xffffffffffffffffu64)),
-            (1, NOT_H_FILE),
-            (-1, NOT_A_FILE),
-            (9, NOT_H_FILE),
-            (7, NOT_A_FILE),
-            (-7, NOT_H_FILE),
-            (-9, NOT_A_FILE),
-        ];
-
-        for (shift, mask) in directions {
+        for (shift, mask) in DIRECTIONS {
             let mut captured = BitBoard(0);
             let mut candidate = match shift {
                 s if s > 0 => (move_mask << s) & opp & mask,
@@ -200,7 +180,6 @@ impl OthelloGame {
             }
         }
 
-        // *** New code to update current_turn ***
         let next_player = match player {
             Color::Black => Color::White,
             Color::White => Color::Black,
@@ -221,10 +200,11 @@ impl OthelloGame {
     }
 
     pub fn game_over(&self) -> bool {
-        self.legal_moves_mask(Color::Black) == BitBoard(0) && self.legal_moves_mask(Color::White) == BitBoard(0)
+        self.legal_moves_mask(Color::Black) == BitBoard(0)
+            && self.legal_moves_mask(Color::White) == BitBoard(0)
     }
 
-    pub fn encode(&self, player: Color) -> [[ [i32; 8]; 8]; 2] {
+    pub fn encode(&self, player: Color) -> [[[i32; 8]; 8]; 2] {
         let mut state = [[[0; 8]; 8]; 2];
         for row in 0..8 {
             for col in 0..8 {
@@ -241,6 +221,15 @@ impl OthelloGame {
             }
         }
         state
+    }
+
+    #[inline]
+    fn step_along(start: BitBoard, shift: i64, mask: BitBoard) -> BitBoard {
+        match shift {
+            s if s > 0 => (start << s) & mask,
+            s if s < 0 => (start >> -s) & mask,
+            _ => BitBoard(0),
+        }
     }
 }
 
@@ -458,8 +447,12 @@ mod tests {
     #[test]
     fn test_turn_pass_when_opponent_has_no_moves() {
         let mut game = OthelloGame {
-            black: BitBoard(0b10111111_10000001_10000001_10000001_10000001_10000001_10000001_01111111),
-            white: BitBoard(0b01000000_01111110_01111110_01111110_01111110_01111110_01111110_00000000),
+            black: BitBoard(
+                0b10111111_10000001_10000001_10000001_10000001_10000001_10000001_01111111,
+            ),
+            white: BitBoard(
+                0b01000000_01111110_01111110_01111110_01111110_01111110_01111110_00000000,
+            ),
             current_turn: Color::White,
         };
 
@@ -470,13 +463,13 @@ mod tests {
         assert!(!turn_one, "Move should be illegal");
 
         println!("{}", game);
-        
+
         assert_eq!(game.current_turn, Color::Black);
         let turn_two = game.play(0, 7, Color::Black);
         assert!(turn_two, "Move should be legal");
 
         println!("{}", game);
-        
+
         assert_eq!(game.get(0, 7), Some(Color::Black));
         assert_eq!(
             game.current_turn,
@@ -487,5 +480,4 @@ mod tests {
         assert!(game.legal_moves(Color::White).is_empty());
         assert!(game.legal_moves(Color::Black).is_empty());
     }
-
 }
