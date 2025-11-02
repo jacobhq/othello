@@ -160,9 +160,9 @@ impl OthelloGame {
 
         for (shift, mask) in DIRECTIONS {
             let mut candidate = if shift > 0 {
-                (move_mask << shift) & mask
+                (move_mask & mask) << shift
             } else if shift < 0 {
-                (move_mask >> -shift) & mask
+                (move_mask & mask) >> -shift
             } else {
                 BitBoard(0)
             };
@@ -173,9 +173,9 @@ impl OthelloGame {
                 flips_in_dir |= candidate;
 
                 candidate = if shift > 0 {
-                    candidate << shift
+                    (candidate & mask) << shift
                 } else {
-                    candidate >> -shift
+                    (candidate & mask) >> -shift
                 };
             }
 
