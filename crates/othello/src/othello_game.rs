@@ -159,30 +159,28 @@ impl OthelloGame {
         let mut flips: BitBoard = BitBoard(0);
 
         for (shift, mask) in DIRECTIONS {
-            let mut captured = BitBoard(0);
-            let mut candidate = match shift {
-                s if s > 0 => (move_mask << s) & opp & mask,
-                s if s < 0 => (move_mask >> -s) & opp & mask,
-                _ => BitBoard(0),
+            let mut candidate = if shift > 0 {
+                (move_mask & mask) << shift
+            } else if shift < 0 {
+                (move_mask & mask) >> -shift
+            } else {
+                BitBoard(0)
             };
 
-            while candidate != BitBoard(0) {
-                captured |= candidate;
-                let next = match shift {
-                    s if s > 0 => (candidate << s) & mask,
-                    s if s < 0 => (candidate >> -s) & mask,
-                    _ => BitBoard(0),
-                };
+            let mut flips_in_dir = BitBoard(0);
 
-                if next & opp != BitBoard(0) {
-                    candidate = next & opp;
-                    continue;
-                } else if next & me != BitBoard(0) {
-                    flips |= captured;
-                    break;
+            while candidate != BitBoard(0) && (candidate & opp) != BitBoard(0) {
+                flips_in_dir |= candidate;
+
+                candidate = if shift > 0 {
+                    (candidate & mask) << shift
                 } else {
-                    break;
-                }
+                    (candidate & mask) >> -shift
+                };
+            }
+
+            if candidate & me != BitBoard(0) {
+                flips |= flips_in_dir;
             }
         }
 
@@ -482,19 +480,13 @@ mod tests {
             current_turn: Color::White,
         };
 
-        println!("{}", game);
-
         assert_eq!(game.current_turn, Color::White);
         let turn_one = game.play(0, 7, Color::White);
         assert_eq!(turn_one.unwrap_err(), OthelloError::NoMovesForPlayer);
 
-        println!("{}", game);
-
         assert_eq!(game.current_turn, Color::Black);
         let turn_two = game.play(0, 7, Color::Black);
         assert!(turn_two.is_ok(), "Move should be legal");
-
-        println!("{}", game);
 
         assert_eq!(game.get(0, 7), Some(Color::Black));
         assert_eq!(
@@ -505,5 +497,425 @@ mod tests {
 
         assert!(game.legal_moves(Color::White).is_empty());
         assert!(game.legal_moves(Color::Black).is_empty());
+    }
+
+    #[test]
+    fn test_board_state_flips_tokens_correctly_1() {
+        // Set up the specific board:
+        // It is ○ Black's turn.
+        //   0 1 2 3 4 5 6 7
+        // 0 . . . ● . . ○ .
+        // 1 . . . ● ● ○ . .
+        // 2 . . ● ● ● ● . .
+        // 3 . . ● ○ ● ● ● ○
+        // 4 ○ ○ ○ ○ ○ ● ● ○
+        // 5 . . ○ ● ● ● ● ○
+        // 6 . . ○ ○ . ● . .
+        // 7 . . ○ ○ . . . .
+        let mut game = OthelloGame {
+            black: BitBoard(0),
+            white: BitBoard(0),
+            current_turn: Color::Black,
+        };
+
+        // Row 0: `. . . ● . . ○ .`
+        game.set(0, 3, Color::White);
+        game.set(0, 6, Color::Black);
+
+        // Row 1: `. . . ● ● ○ . .`
+        game.set(1, 3, Color::White);
+        game.set(1, 4, Color::White);
+        game.set(1, 5, Color::Black);
+
+        // Row 2: `. . ● ● ● ● . .`
+        game.set(2, 2, Color::White);
+        game.set(2, 3, Color::White);
+        game.set(2, 4, Color::White);
+        game.set(2, 5, Color::White);
+
+        // Row 3: `. . ● ○ ● ● ● ○`
+        game.set(3, 2, Color::White);
+        game.set(3, 3, Color::Black);
+        game.set(3, 4, Color::White);
+        game.set(3, 5, Color::White);
+        game.set(3, 6, Color::White);
+        game.set(3, 7, Color::Black);
+
+        // Row 4: `○ ○ ○ ○ ○ ● ● ○`
+        game.set(4, 0, Color::Black);
+        game.set(4, 1, Color::Black);
+        game.set(4, 2, Color::Black);
+        game.set(4, 3, Color::Black);
+        game.set(4, 4, Color::Black);
+        game.set(4, 5, Color::White);
+        game.set(4, 6, Color::White);
+        game.set(4, 7, Color::Black);
+
+        // Row 5: `. . ○ ● ● ● ● ○`
+        game.set(5, 2, Color::Black);
+        game.set(5, 3, Color::White);
+        game.set(5, 4, Color::White);
+        game.set(5, 5, Color::White);
+        game.set(5, 6, Color::White);
+        game.set(5, 7, Color::Black);
+
+        // Row 6: `. . ○ ○ . ● . .`
+        game.set(6, 2, Color::Black);
+        game.set(6, 3, Color::Black);
+        game.set(6, 5, Color::White);
+
+        // Row 7: `. . ○ ○ . . . .`
+        game.set(7, 2, Color::Black);
+        game.set(7, 3, Color::Black);
+
+        // Verify initial state - row 7 should have Black at (7,2) and (7,3)
+        assert_eq!(game.get(7, 2), Some(Color::Black));
+        assert_eq!(game.get(7, 3), Some(Color::Black));
+        assert_eq!(game.get(7, 4), None);
+        assert_eq!(game.current_turn, Color::Black);
+
+        // Verify (7,4) is a legal move
+        let legal_moves = game.legal_moves(Color::Black);
+        assert!(
+            legal_moves.contains(&(7, 4)),
+            "Position (7,4) should be a legal move for Black"
+        );
+
+        // Play the move at (7,4)
+        let result = game.play(7, 4, Color::Black);
+        assert!(result.is_ok(), "Move should be legal and successful");
+
+        // After:
+        // It is ● White's turn.
+        //   0 1 2 3 4 5 6 7
+        // 0 . . . ● . . ○ .
+        // 1 . . . ● ● ○ . .
+        // 2 . . ● ● ● ● . .
+        // 3 . . ● ○ ● ● ● ○
+        // 4 ○ ○ ○ ○ ○ ● ● ○
+        // 5 . . ○ ● ● ● ○ ○
+        // 6 . . ○ ○ . ○ . .
+        // 7 . . ○ ○ ○ . . .
+        // After the move, positions (7,4), (6,5), and (5,6) should all be Black
+        assert_eq!(
+            game.get(7, 4),
+            Some(Color::Black),
+            "Position (7,4) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(6, 5),
+            Some(Color::Black),
+            "Position (6,5) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 6),
+            Some(Color::Black),
+            "Position (5,6) should be Black after the move"
+        );
+    }
+
+    #[test]
+    fn test_board_state_flips_tokens_correctly_2() {
+        // Set up the specific board:
+        // It is ○ Black's turn.
+        //   0 1 2 3 4 5 6 7
+        // 0 . . . ● . . ○ .
+        // 1 . . . ● ● ○ . .
+        // 2 . . ● ● ● ● . .
+        // 3 . . ● ● ● ● ● ○
+        // 4 ○ ○ ● ○ ○ ● ● ○
+        // 5 . ● ● ● ● ● ● ○
+        // 6 . . ○ ○ . ● . .
+        // 7 . . ○ ○ ○ . . .
+        let mut game = OthelloGame {
+            black: BitBoard(0),
+            white: BitBoard(0),
+            current_turn: Color::Black,
+        };
+
+        // Row 0: `. . . ● . . ○ .`
+        game.set(0, 3, Color::White);
+        game.set(0, 6, Color::Black);
+
+        // Row 1: `. . . ● ● ○ . .`
+        game.set(1, 3, Color::White);
+        game.set(1, 4, Color::White);
+        game.set(1, 5, Color::Black);
+
+        // Row 2: `. . ● ● ● ● . .`
+        game.set(2, 2, Color::White);
+        game.set(2, 3, Color::White);
+        game.set(2, 4, Color::White);
+        game.set(2, 5, Color::White);
+
+        // Row 3: `. . ● ● ● ● ● ○`
+        game.set(3, 2, Color::White);
+        game.set(3, 3, Color::White);
+        game.set(3, 4, Color::White);
+        game.set(3, 5, Color::White);
+        game.set(3, 6, Color::White);
+        game.set(3, 7, Color::Black);
+
+        // Row 4: `○ ○ ● ○ ○ ● ● ○`
+        game.set(4, 0, Color::Black);
+        game.set(4, 1, Color::Black);
+        game.set(4, 2, Color::White);
+        game.set(4, 3, Color::Black);
+        game.set(4, 4, Color::Black);
+        game.set(4, 5, Color::White);
+        game.set(4, 6, Color::White);
+        game.set(4, 7, Color::Black);
+
+        // Row 5: `. ● ● ● ● ● ● ○`
+        game.set(5, 1, Color::White);
+        game.set(5, 2, Color::White);
+        game.set(5, 3, Color::White);
+        game.set(5, 4, Color::White);
+        game.set(5, 5, Color::White);
+        game.set(5, 6, Color::White);
+        game.set(5, 7, Color::Black);
+
+        // Row 6: `. . ○ ○ . ● . .`
+        game.set(6, 2, Color::Black);
+        game.set(6, 3, Color::Black);
+        game.set(6, 5, Color::White);
+
+        // Row 7: `. . ○ ○ ○ . . .`
+        game.set(7, 2, Color::Black);
+        game.set(7, 3, Color::Black);
+        game.set(7, 4, Color::Black);
+
+        // Verify initial state - row 7 should have Black at (7,2), (7,3) and (7,4)
+        assert_eq!(game.get(7, 2), Some(Color::Black));
+        assert_eq!(game.get(7, 3), Some(Color::Black));
+        assert_eq!(game.get(7, 4), Some(Color::Black));
+        assert_eq!(game.current_turn, Color::Black);
+
+        // Verify (5,0) is a legal move
+        let legal_moves = game.legal_moves(Color::Black);
+        assert!(
+            legal_moves.contains(&(5, 0)),
+            "Position (5,0) should be a legal move for Black"
+        );
+
+        // Play the move at (7,4)
+        let result = game.play(5, 0, Color::Black);
+        assert!(result.is_ok(), "Move should be legal and successful");
+
+        // After:
+        // It is ● White's turn.
+        //   0 1 2 3 4 5 6 7
+        // 0 . . . ● . . ○ .
+        // 1 . . . ● ● ○ . .
+        // 2 . . ● ● ● ● . .
+        // 3 . . ● ● ● ● ● ○
+        // 4 ○ ○ ● ○ ○ ● ● ○
+        // 5 ○ ○ ○ ○ ○ ○ ○ ○
+        // 6 . . ○ ○ . ● . .
+        // 7 . . ○ ○ ○ . . .
+        // After the move, all of row 5 should be black
+        assert_eq!(
+            game.get(5, 0),
+            Some(Color::Black),
+            "Position (5,0) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 1),
+            Some(Color::Black),
+            "Position (5,1) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 2),
+            Some(Color::Black),
+            "Position (5,2) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 3),
+            Some(Color::Black),
+            "Position (5,3) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 4),
+            Some(Color::Black),
+            "Position (5,4) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 5),
+            Some(Color::Black),
+            "Position (5,5) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 6),
+            Some(Color::Black),
+            "Position (5,6) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(5, 7),
+            Some(Color::Black),
+            "Position (5,7) should be flipped to Black"
+        );
+    }
+
+    #[test]
+    fn test_board_state_flips_tokens_correctly_3() {
+        // Set up the specific board:
+        // It is ● White's turn.
+        //   0 1 2 3 4 5 6 7
+        // 0 . . ○ ○ ○ ● ● ●
+        // 1 . ● ● ● ● ● . .
+        // 2 . ● ● ● ○ ● . .
+        // 3 ○ ● ○ ● ● ● ● ○
+        // 4 ○ ● ○ ● ● ● ● ○
+        // 5 ○ ○ ○ ● ○ ● ● ○
+        // 6 ○ ○ ○ ○ ○ ○ . .
+        // 7 ○ ● ○ ○ ○ ○ ○ .
+        let mut game = OthelloGame {
+            black: BitBoard(0),
+            white: BitBoard(0),
+            current_turn: Color::White,
+        };
+
+        // Row 0: `. . ○ ○ ○ ● ● ●`
+        game.set(0, 2, Color::Black);
+        game.set(0, 3, Color::Black);
+        game.set(0, 4, Color::Black);
+        game.set(0, 5, Color::White);
+        game.set(0, 6, Color::White);
+        game.set(0, 7, Color::White);
+
+        // Row 1: `. ● ● ● ● ● . .`
+        game.set(1, 1, Color::White);
+        game.set(1, 2, Color::White);
+        game.set(1, 3, Color::White);
+        game.set(1, 4, Color::White);
+        game.set(1, 5, Color::White);
+
+        // Row 2: `. ● ● ● ○ ● . .`
+        game.set(2, 1, Color::White);
+        game.set(2, 2, Color::White);
+        game.set(2, 3, Color::White);
+        game.set(2, 4, Color::Black);
+        game.set(2, 5, Color::White);
+
+        // Row 3: `○ ● ○ ● ● ● ● ○`
+        game.set(3, 0, Color::Black);
+        game.set(3, 1, Color::White);
+        game.set(3, 2, Color::Black);
+        game.set(3, 3, Color::White);
+        game.set(3, 4, Color::White);
+        game.set(3, 5, Color::White);
+        game.set(3, 6, Color::White);
+        game.set(3, 7, Color::Black);
+
+        // Row 4: `○ ● ○ ● ● ● ● ○`
+        game.set(4, 0, Color::Black);
+        game.set(4, 1, Color::White);
+        game.set(4, 2, Color::Black);
+        game.set(4, 3, Color::White);
+        game.set(4, 4, Color::White);
+        game.set(4, 5, Color::White);
+        game.set(4, 6, Color::White);
+        game.set(4, 7, Color::Black);
+
+        // Row 5: `○ ○ ○ ● ○ ● ● ○`
+        game.set(5, 0, Color::Black);
+        game.set(5, 1, Color::Black);
+        game.set(5, 2, Color::Black);
+        game.set(5, 3, Color::White);
+        game.set(5, 4, Color::Black);
+        game.set(5, 5, Color::White);
+        game.set(5, 6, Color::White);
+        game.set(5, 7, Color::Black);
+
+        // Row 6: `○ ○ ○ ○ ○ ○ . .`
+        game.set(6, 0, Color::Black);
+        game.set(6, 1, Color::Black);
+        game.set(6, 2, Color::Black);
+        game.set(6, 3, Color::Black);
+        game.set(6, 5, Color::Black);
+
+        // Row 7: `○ ● ○ ○ ○ ○ ○ .`
+        game.set(7, 0, Color::Black);
+        game.set(7, 1, Color::White);
+        game.set(7, 2, Color::Black);
+        game.set(7, 3, Color::Black);
+        game.set(7, 4, Color::Black);
+        game.set(7, 5, Color::Black);
+        game.set(7, 6, Color::Black);
+
+        // Verify initial state - row 7
+        assert_eq!(game.get(7, 0), Some(Color::Black));
+        assert_eq!(game.get(7, 1), Some(Color::White));
+        assert_eq!(game.get(7, 2), Some(Color::Black));
+        assert_eq!(game.get(7, 3), Some(Color::Black));
+        assert_eq!(game.get(7, 4), Some(Color::Black));
+        assert_eq!(game.get(7, 5), Some(Color::Black));
+        assert_eq!(game.get(7, 6), Some(Color::Black));
+        assert_eq!(game.get(7, 7), None);
+        assert_eq!(game.current_turn, Color::White);
+
+        // Verify (7,7) is a legal move
+        let legal_moves = game.legal_moves(Color::White);
+        assert!(
+            legal_moves.contains(&(7, 7)),
+            "Position (7,7) should be a legal move for White"
+        );
+
+        // Play the move at (7,7)
+        let result = game.play(7, 7, Color::White);
+        assert!(result.is_ok(), "Move should be legal and successful");
+
+        // After:
+        // It is ● White's turn.
+        //   0 1 2 3 4 5 6 7
+        // 0 . . ○ ○ ○ ● ● ●
+        // 1 . ● ● ● ● ● . .
+        // 2 . ● ● ● ○ ● . .
+        // 3 ○ ● ○ ● ● ● ● ○
+        // 4 ○ ● ○ ● ● ● ● ○
+        // 5 ○ ○ ● ● ○ ● ● ○
+        // 6 ○ ● ○ ○ ○ ○ . .
+        // 7 ○ ● ● ● ● ● ● ●
+        // After the move, row 7 should be white except from at 7 0
+        assert_eq!(
+            game.get(7, 0),
+            Some(Color::Black),
+            "Position (7,0) should be flipped to Black"
+        );
+        assert_eq!(
+            game.get(7, 1),
+            Some(Color::White),
+            "Position (7,1) should be flipped to White"
+        );
+        assert_eq!(
+            game.get(7, 2),
+            Some(Color::White),
+            "Position (7,1) should be flipped to White"
+        );
+        assert_eq!(
+            game.get(7, 3),
+            Some(Color::White),
+            "Position (7,3) should be flipped to White"
+        );
+        assert_eq!(
+            game.get(7, 4),
+            Some(Color::White),
+            "Position (7,4) should be flipped to White"
+        );
+        assert_eq!(
+            game.get(7, 5),
+            Some(Color::White),
+            "Position (7,5) should be flipped to White"
+        );
+        assert_eq!(
+            game.get(7, 6),
+            Some(Color::White),
+            "Position (7,6) should be flipped to White"
+        );
+        assert_eq!(
+            game.get(7, 7),
+            Some(Color::White),
+            "Position (7,7) should be flipped to White"
+        );
     }
 }
