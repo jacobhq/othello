@@ -861,8 +861,6 @@ mod tests {
             "Position (7,7) should be a legal move for White"
         );
 
-        println!("{}", game);
-
         // Play the move at (7,7)
         let result = game.play(7, 7, Color::White);
         assert!(result.is_ok(), "Move should be legal and successful");
@@ -879,7 +877,6 @@ mod tests {
         // 6 ○ ● ○ ○ ○ ○ . .
         // 7 ○ ● ● ● ● ● ● ●
         // After the move, row 7 should be white except from at 7 0
-        println!("{}", game);
         assert_eq!(
             game.get(7, 0),
             Some(Color::Black),
