@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Build othello-wasm" type="WasmPackCommandRunConfiguration" factoryName="wasm-pack">
+    <option name="command" value="build --target bundler --out-dir ../../apps/othello-frontend/pkg" />
+    <option name="workingDirectory" value="file://$PROJECT_DIR$/crates/othello-wasm" />
+    <envs />
+    <option name="emulateTerminal" value="true" />
+    <method v="2">
+      <option name="WASM_PACK.BUILD_TASK_PROVIDER" enabled="true" />
+    </method>
+  </configuration>
+</component>
