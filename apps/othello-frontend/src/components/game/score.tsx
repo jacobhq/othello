@@ -3,25 +3,27 @@ import { cn } from "@/lib/utils"
 interface ScoreProps {
     blackScore: number
     whiteScore: number
-    currentTurn: 1 | 2
+    highlightedPlayer?: 1 | 2
 }
 
-export default function Score({ blackScore, whiteScore, currentTurn }: ScoreProps) {
+export default function Score({ blackScore, whiteScore, highlightedPlayer }: ScoreProps) {
     return (
         <div className="flex items-center justify-center gap-6 mb-6">
             {/* Black Player */}
             <div
                 className={cn(
                     "flex items-center gap-4 rounded-xl border-2 px-6 py-3 transition-all duration-300",
-                    currentTurn === 1
+                    highlightedPlayer === 1
                         ? "border-foreground bg-accent shadow-lg scale-105"
                         : "border-border bg-card opacity-60",
+                    !highlightedPlayer && "opacity-100"
                 )}
             >
                 <div
                     className={cn(
                         "h-10 w-10 rounded-full border-3 transition-all duration-300 flex-shrink-0",
-                        currentTurn === 1 ? "border-foreground bg-foreground shadow-md" : "border-muted bg-foreground",
+                        highlightedPlayer === 1 ? "border-foreground bg-foreground shadow-md" : "border-muted bg-foreground",
+                        !highlightedPlayer && "opacity-100"
                     )}
                 />
                 <div className="flex flex-col items-start gap-0.5">
@@ -34,15 +36,17 @@ export default function Score({ blackScore, whiteScore, currentTurn }: ScoreProp
             <div
                 className={cn(
                     "flex items-center gap-4 rounded-xl border-2 px-6 py-3 transition-all duration-300",
-                    currentTurn === 2
+                    highlightedPlayer === 2
                         ? "border-foreground bg-accent shadow-lg scale-105"
                         : "border-border bg-card opacity-60",
+                    !highlightedPlayer && "opacity-100"
                 )}
             >
                 <div
                     className={cn(
                         "h-10 w-10 rounded-full border-3 transition-all duration-300 flex-shrink-0",
-                        currentTurn === 2 ? "border-foreground bg-background shadow-md" : "border-muted bg-background",
+                        highlightedPlayer === 2 ? "border-foreground bg-background shadow-md" : "border-muted bg-background",
+                        !highlightedPlayer && "opacity-100"
                     )}
                 />
                 <div className="flex flex-col items-start gap-0.5">
