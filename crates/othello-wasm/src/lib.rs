@@ -19,8 +19,8 @@ impl WasmGame {
     /// Play a move (row, col, player = 1 for Black, 2 for White).
     pub fn play_turn(&mut self, row: usize, col: usize, player: u8) -> Result<(), JsValue> {
         let color = match player {
-            0 => Color::Black,
             1 => Color::Black,
+            2 => Color::White,
             _ => return Err(JsValue::from_str("Player out of range"))
         };
 
