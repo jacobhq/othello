@@ -13,6 +13,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
+import posthog from "posthog-js";
 
 export default function Board() {
     const [game, setGame] = useState<WasmGame | null>(null);
@@ -20,6 +21,7 @@ export default function Board() {
     const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
     const [score, setScore] = useState<[number, number]>([0, 0]);
     const [gameOver, setGameOver] = useState(false);
+    const [firstMove, setFirstMove] = useState(true);
 
     useEffect(() => {
         // Initialise the wasm module on mount
@@ -47,7 +49,28 @@ export default function Board() {
             setScore([...game.score()] as [number, number])
             setCurrentPlayer(game.current_player() as 2 | 1)
             setGameOver(game.game_over())
+
+            if (firstMove) {
+                posthog.capture("game_started", {
+                    type: "demo"
+                })
+            }
+
+            if (game.game_over()) {
+                posthog.capture("game_terminated", {
+                    type: "demo",
+                    winner: score[0] > score[1] ? "white" : "black"
+                })
+            }
+
+            setFirstMove(false)
         } catch (e) {
+            posthog.capture("error", {
+                type: "demo",
+                text: e as string,
+                row: i,
+                col: j
+            })
             toast.error(e as string)
         }
     }
