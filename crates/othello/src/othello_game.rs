@@ -49,6 +49,12 @@ pub struct OthelloGame {
     pub current_turn: Color,
 }
 
+impl Default for OthelloGame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OthelloGame {
     /// Creates a new Othello board with the standard starting position.
     pub fn new() -> Self {
@@ -251,8 +257,8 @@ impl OthelloGame {
     }
 }
 
-impl std::fmt::Display for OthelloGame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for OthelloGame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "  0 1 2 3 4 5 6 7")?;
         for row in 0..8 {
             write!(f, "{} ", row)?;
@@ -289,10 +295,7 @@ mod tests {
         // Everything else is empty
         for r in 0..8 {
             for c in 0..8 {
-                if !((r == 3 && c == 3)
-                    || (r == 4 && c == 4)
-                    || (r == 3 && c == 4)
-                    || (r == 4 && c == 3))
+                if r != 3 && r != 4 || c != 3 && c != 4
                 {
                     assert_eq!(game.get(r, c), None);
                 }
@@ -365,7 +368,7 @@ mod tests {
     fn test_play_illegal_move_outside_legal_moves() {
         let mut game = OthelloGame::new();
         // (0,0) is not a legal move initially
-        assert!(!game.play(0, 0, Color::Black).is_ok());
+        assert!(game.play(0, 0, Color::Black).is_err());
     }
 
     #[test]

@@ -1,6 +1,5 @@
+use othello::othello_game::{Color, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
-use serde::Serialize;
-use othello::othello_game::{OthelloGame,Color,OthelloError};
 
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]
