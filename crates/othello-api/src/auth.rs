@@ -14,7 +14,7 @@ use serde_json::json;
 
 
 #[derive(Serialize, Deserialize)]
-pub struct Cliams {
+pub struct Claims {
     pub exp: usize,
     pub iat: usize,
     pub email: String,
@@ -52,7 +52,7 @@ pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
     let exp: usize = (now + expire).timestamp() as usize;
     let iat: usize = now.timestamp() as usize;
 
-    let claim = Cliams { iat, exp, email };
+    let claim = Claims { iat, exp, email };
     let secret = jwt_token.clone();
 
     encode(
@@ -63,10 +63,10 @@ pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-pub fn decode_jwt(jwt: String) -> Result<TokenData<Cliams>, StatusCode> {
+pub fn decode_jwt(jwt: String) -> Result<TokenData<Claims>, StatusCode> {
     let secret = "randomstring".to_string();
 
-    let result: Result<TokenData<Cliams>, StatusCode> = decode(
+    let result: Result<TokenData<Claims>, StatusCode> = decode(
         &jwt,
         &DecodingKey::from_secret(secret.as_ref()),
         &Validation::default(),

@@ -29,7 +29,7 @@ async fn main() {
 
     // Run Server
     #[cfg(debug_assertions)]
-    let addr: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+    let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
 
     #[cfg(not(debug_assertions))]
     let addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
