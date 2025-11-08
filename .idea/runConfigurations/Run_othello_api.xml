@@ -1,8 +1,8 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Build othello" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="Run othello-api" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="buildProfileId" value="dev" />
-    <option name="command" value="build" />
-    <option name="workingDirectory" value="file://$PROJECT_DIR$/crates/othello" />
+    <option name="command" value="run" />
+    <option name="workingDirectory" value="file://$PROJECT_DIR$/crates/othello-api" />
     <envs />
     <option name="emulateTerminal" value="true" />
     <option name="channel" value="DEFAULT" />
