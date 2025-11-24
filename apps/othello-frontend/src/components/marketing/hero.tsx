@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button.tsx'
 import {Skeleton} from "@/components/ui/skeleton.tsx";
+import {Link} from "@tanstack/react-router";
 
 export default function Hero() {
     return (
@@ -14,17 +15,17 @@ export default function Hero() {
                         <Button
                             rounded="full"
                             asChild>
-                            <a href="#link">
-                                <span className="text-nowrap">Get Started</span>
+                            <a href="#game">
+                                <span className="text-nowrap">Play Othello</span>
                             </a>
                         </Button>
                         <Button
                             rounded="full"
                             asChild
                             variant="ghost">
-                            <a href="#link">
-                                <span className="text-nowrap">View Demo</span>
-                            </a>
+                            <Link to="/auth/signup">
+                                <span className="text-nowrap">Sign Up</span>
+                            </Link>
                         </Button>
                     </div>
                 </div>
