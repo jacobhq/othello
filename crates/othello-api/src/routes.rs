@@ -5,11 +5,12 @@ use axum::{
 };
 use crate::{auth, services};
 
-pub async fn auth() -> Router {
+pub async fn auth(pool: sqlx::PgPool) -> Router {
     Router::new()
         .route("/auth/sign-in", post(auth::sign_in))
         .route(
             "/protected",
-            get(services::hello).layer(middleware::from_fn(auth::authorize)),
+            get(services::hello).layer(middleware::from_fn_with_state(pool.clone(), auth::authorize)),
         )
+        .with_state(pool)
 }

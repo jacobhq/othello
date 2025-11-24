@@ -6,11 +6,13 @@ use axum::{
     http::{Response, StatusCode},
     middleware::Next,
 };
+use axum::extract::State;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sqlx::PgPool;
 
 
 #[derive(Serialize, Deserialize)]
@@ -75,50 +77,50 @@ pub fn decode_jwt(jwt: String) -> Result<TokenData<Claims>, StatusCode> {
     result
 }
 
-#[derive(Clone)]
-pub struct CurrentUser {
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Account {
+    pub id: String,
+    pub username: String,
     pub email: String,
-    pub first_name: String,
-    pub last_name: String,
-    pub password_hash: String
+    pub password_hash: String,
+    pub elo_rating: i32,
+    pub date_joined: chrono::NaiveDateTime,
+    pub last_login: Option<chrono::NaiveDateTime>,
+    pub is_admin: bool,
 }
 
-pub async fn authorize(mut req: Request, next: Next) -> Result<Response<Body>, AuthError> {
+pub async fn authorize(
+    State(pool): State<PgPool>,
+    mut req: Request,
+    next: Next,
+) -> Result<Response<Body>, AuthError> {
     let auth_header = req.headers_mut().get(http::header::AUTHORIZATION);
 
-    let auth_header = match auth_header {
-        Some(header) => header.to_str().map_err(|_| AuthError {
-            message: "Empty header is not allowed".to_string(),
-            status_code: StatusCode::FORBIDDEN
-        })?,
-        None => return Err(AuthError {
-            message: "Please add the JWT token to the header".to_string(),
-            status_code: StatusCode::FORBIDDEN
+    let token = match auth_header.and_then(|h| h.to_str().ok()) {
+        Some(h) if h.starts_with("Bearer ") => h.trim_start_matches("Bearer ").to_string(),
+        _ => return Err(AuthError {
+            message: "Missing or invalid Authorization header".into(),
+            status_code: StatusCode::FORBIDDEN,
         }),
     };
 
-    let mut header = auth_header.split_whitespace();
+    let token_data = decode_jwt(token).map_err(|_| AuthError {
+        message: "Invalid or expired token".into(),
+        status_code: StatusCode::UNAUTHORIZED,
+    })?;
 
-    let (bearer, token) = (header.next(), header.next());
+    let account = retrieve_user_by_email(&pool, &token_data.claims.email)
+        .await
+        .map_err(|_| AuthError {
+            message: "Database error".into(),
+            status_code: StatusCode::INTERNAL_SERVER_ERROR,
+        })?
+        .ok_or(AuthError {
+            message: "User not found".into(),
+            status_code: StatusCode::UNAUTHORIZED,
+        })?;
 
-    let token_data = match decode_jwt(token.unwrap().to_string()) {
-        Ok(data) => data,
-        Err(_) => return Err(AuthError {
-            message: "Unable to decode token".to_string(),
-            status_code: StatusCode::UNAUTHORIZED
-        }),
-    };
-
-    // Fetch the user details from the database
-    let current_user = match retrieve_user_by_email(&token_data.claims.email) {
-        Some(user) => user,
-        None => return Err(AuthError {
-            message: "You are not an authorized user".to_string(),
-            status_code: StatusCode::UNAUTHORIZED
-        }),
-    };
-
-    req.extensions_mut().insert(current_user);
+    req.extensions_mut().insert(account);
     Ok(next.run(req).await)
 }
 
@@ -130,37 +132,56 @@ pub struct SignInData {
 }
 
 pub async fn sign_in(
+    State(pool): State<PgPool>,
     Json(user_data): Json<SignInData>,
 ) -> Result<Json<String>, StatusCode> {
+    // 1. Look up account
+    let account = retrieve_user_by_email(&pool, &user_data.email)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // 1. Retrieve user from the database
-    let user = match retrieve_user_by_email(&user_data.email) {
-        Some(user) => user,
-        None => return Err(StatusCode::UNAUTHORIZED), // User not found
+    let account = match account {
+        Some(acc) => acc,
+        None => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    // 2. Compare the password
-    if !verify_password(&user_data.password, &user.password_hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? // Handle bcrypt errors
+    // 2. Verify password
+    if !verify_password(&user_data.password, &account.password_hash)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
-        return Err(StatusCode::UNAUTHORIZED); // Wrong password
+        return Err(StatusCode::UNAUTHORIZED);
     }
 
     // 3. Generate JWT
-    let token = encode_jwt(user.email)
+    let token = encode_jwt(account.email)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // 4. Return the token
+    // 4. Optionally update last_login
+    sqlx::query("UPDATE Account SET last_login = CURRENT_TIMESTAMP WHERE id = $1")
+        .bind(&account.id)
+        .execute(&pool)
+        .await
+        .ok();
+
+    // 5. Return token (later we’ll set it as a cookie)
     Ok(Json(token))
 }
 
 
-fn retrieve_user_by_email(email: &str) -> Option<CurrentUser> {
-    let current_user: CurrentUser = CurrentUser {
-        email: "myemail@gmail.com".to_string(),
-        first_name: "Eze".to_string(),
-        last_name: "Sunday".to_string(),
-        password_hash: "$2b$12$Gwf0uvxH3L7JLfo0CC/NCOoijK2vQ/wbgP.LeNup8vj6gg31IiFkm".to_string()
-    };
-    Some(current_user)
+pub async fn retrieve_user_by_email(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Option<Account>, sqlx::Error> {
+    let account = sqlx::query_as::<_, Account>(
+        r#"
+        SELECT id, username, email, password_hash, elo_rating, date_joined, last_login, is_admin
+        FROM Account
+        WHERE email = $1
+        "#,
+    )
+        .bind(email)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(account)
 }

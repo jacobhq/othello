@@ -1,6 +1,7 @@
 mod routes;
 mod services;
 mod auth;
+mod db;
 
 use axum::{routing::get, Router};
 use dotenvy::dotenv;
@@ -11,15 +12,17 @@ use tower_http::cors::{CorsLayer};
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+    let pool = db::init_db().await;
 
     // CORS Setup
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:5173".parse::<axum::http::HeaderValue>().unwrap())
         .allow_origin("https://othello.jhqcat.com".parse::<axum::http::HeaderValue>().unwrap())
-        .allow_methods([axum::http::Method::GET])
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS])
+        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let auth = routes::auth().await;
+    let auth = routes::auth(pool.clone()).await;
 
     // Router
     let app = Router::new()
