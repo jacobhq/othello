@@ -2,12 +2,14 @@ mod routes;
 mod services;
 mod auth;
 mod db;
+mod csrf;
 
 use axum::{routing::get, Router};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower_http::cors::{CorsLayer};
+use crate::csrf::init_csrf;
 
 #[tokio::main]
 async fn main() {
@@ -27,6 +29,7 @@ async fn main() {
     // Router
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
+        .route("/csrf/init", get(init_csrf))
         .merge(auth)
         .layer(cors);
 
