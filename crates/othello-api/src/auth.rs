@@ -1,12 +1,7 @@
-use axum::{
-    body::Body,
-    response::IntoResponse,
-    extract::{Request, Json},
-    http,
-    http::{Response, StatusCode},
-    middleware::Next,
-};
+use axum::{body::Body, response::IntoResponse, extract::{Request, Json}, http, http::{Response, StatusCode}, middleware::Next, Form};
 use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::response::Redirect;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
@@ -135,28 +130,40 @@ pub struct SignInData {
 
 pub async fn sign_in(
     State(pool): State<PgPool>,
-    Json(user_data): Json<SignInData>,
-) -> Result<Json<String>, StatusCode> {
+    Form(user_data): Form<SignInData>,
+) -> impl IntoResponse {
+    let login_url = if cfg!(debug_assertions) {
+        "http://localhost:5173/auth/login?error=incorrect_credentials"
+    } else {
+        "https://othello.jhqcat.com/auth/login?error=incorrect_credentials"
+    };
+
     // 1. Look up account
-    let account = retrieve_user_by_email(&pool, &user_data.email)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let account = match retrieve_user_by_email(&pool, &user_data.email).await {
+        Ok(acc) => acc,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
 
     let account = match account {
         Some(acc) => acc,
-        None => return Err(StatusCode::UNAUTHORIZED),
+        None => return Redirect::to(login_url).into_response(),
     };
 
     // 2. Verify password
-    if !verify_password(&user_data.password, &account.password_hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    {
-        return Err(StatusCode::UNAUTHORIZED);
+    let valid = match verify_password(&user_data.password, &account.password_hash) {
+        Ok(v) => v,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    if !valid {
+        return Redirect::to(login_url).into_response();
     }
 
     // 3. Generate JWT
-    let token = encode_jwt(account.email)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token = match encode_jwt(account.email.clone()) {
+        Ok(t) => t,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
 
     // 4. Optionally update last_login
     sqlx::query("UPDATE Account SET last_login = CURRENT_TIMESTAMP WHERE id = $1")
@@ -165,8 +172,39 @@ pub async fn sign_in(
         .await
         .ok();
 
-    // 5. Return token (later we’ll set it as a cookie)
-    Ok(Json(token))
+    // 5. Build the cookie
+    let cookie_value = if cfg!(debug_assertions) {
+        // Development: no Domain attribute (localhost behaves better)
+        format!(
+            "auth_token={}; Secure; HttpOnly; SameSite=None; Path=/",
+            token
+        )
+    } else {
+        // Production: include Domain
+        let backend_domain = std::env::var("BACKEND_COOKIE_DOMAIN")
+            .expect("BACKEND_COOKIE_DOMAIN must be set in production");
+
+        format!(
+            "auth_token={}; Secure; HttpOnly; SameSite=None; Path=/; Domain={}",
+            token,
+            backend_domain
+        )
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert("Set-Cookie", cookie_value.parse().unwrap());
+
+    // 6. Send JSON back with cookie set
+    let redirect_target = if cfg!(debug_assertions) {
+        // Dev
+        "http://localhost:5173/"
+    } else {
+        // Production
+        "https://othello.jhqcat.com/"
+    };
+
+    let response = (headers, Redirect::to(redirect_target)).into_response();
+    response
 }
 
 

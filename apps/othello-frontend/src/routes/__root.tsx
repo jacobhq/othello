@@ -16,8 +16,8 @@ function RootComponent() {
   return (
     <>
       <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
-        <Outlet />
         <Toaster/>
+        <Outlet />
       </PostHogProvider>
       <TanStackRouterDevtools position="bottom-right" />
     </>
