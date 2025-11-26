@@ -1,8 +1,8 @@
-use axum::{body::Body, response::IntoResponse, extract::{Request, Json}, http, http::{Response, StatusCode}, middleware::Next, Form};
 use axum::extract::State;
 use axum::http::header::COOKIE;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
+use axum::{body::Body, extract::{Json, Request}, http::{Response, StatusCode}, middleware::Next, response::IntoResponse, Form};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
@@ -87,39 +87,74 @@ pub struct Account {
     pub is_admin: bool,
 }
 
+fn extract_jwt_from_cookie(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+
+    cookie_header
+        .split(';')
+        .map(|c| c.trim())
+        .find(|c| c.starts_with("auth_token="))
+        .map(|c| c.trim_start_matches("auth_token=").to_string())
+}
+
 pub async fn authorize(
-    State(pool): State<PgPool>,
     mut req: Request,
     next: Next,
-) -> Result<Response<Body>, AuthError> {
-    let auth_header = req.headers_mut().get(http::header::AUTHORIZATION);
-
-    let token = match auth_header.and_then(|h| h.to_str().ok()) {
-        Some(h) if h.starts_with("Bearer ") => h.trim_start_matches("Bearer ").to_string(),
-        _ => return Err(AuthError {
-            message: "Missing or invalid Authorization header".into(),
-            status_code: StatusCode::FORBIDDEN,
-        }),
+) -> impl IntoResponse {
+    let token = match extract_jwt_from_cookie(req.headers()) {
+        Some(t) => t,
+        None => {
+            return AuthError {
+                message: "Missing auth cookie".into(),
+                status_code: StatusCode::FORBIDDEN,
+            }.into_response();
+        }
     };
 
-    let token_data = decode_jwt(token).map_err(|_| AuthError {
-        message: "Invalid or expired token".into(),
-        status_code: StatusCode::UNAUTHORIZED,
-    })?;
+    let token_data = match decode_jwt(token) {
+        Ok(t) => t,
+        Err(_) => {
+            return AuthError {
+                message: "Invalid or expired token".into(),
+                status_code: StatusCode::UNAUTHORIZED,
+            }
+                .into_response();
+        }
+    };
 
-    let account = retrieve_user_by_email(&pool, &token_data.claims.email)
-        .await
-        .map_err(|_| AuthError {
-            message: "Database error".into(),
-            status_code: StatusCode::INTERNAL_SERVER_ERROR,
-        })?
-        .ok_or(AuthError {
-            message: "User not found".into(),
-            status_code: StatusCode::UNAUTHORIZED,
-        })?;
+    let pool = match req.extensions().get::<PgPool>() {
+        Some(pool) => pool.clone(),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "missing database pool in request state",
+            )
+                .into_response();
+        }
+    };
+
+
+    let account = match retrieve_user_by_email(&pool, &token_data.claims.email).await {
+        Ok(Some(acc)) => acc,
+        Ok(None) => {
+            return AuthError {
+                message: "User not found".into(),
+                status_code: StatusCode::UNAUTHORIZED,
+            }
+                .into_response();
+        }
+        Err(_) => {
+            return AuthError {
+                message: "Database error".into(),
+                status_code: StatusCode::INTERNAL_SERVER_ERROR,
+            }
+                .into_response();
+        }
+    };
 
     req.extensions_mut().insert(account);
-    Ok(next.run(req).await)
+
+    next.run(req).await
 }
 
 

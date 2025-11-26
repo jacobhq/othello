@@ -7,9 +7,12 @@ mod csrf;
 use axum::{routing::get, Router};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
+use axum::http::HeaderValue;
+use axum::middleware::from_fn;
 use tokio::net::TcpListener;
-use tower_http::cors::{CorsLayer};
-use crate::csrf::init_csrf;
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use crate::auth::authorize;
+use crate::csrf::{csrf_protect, init_csrf};
 
 #[tokio::main]
 async fn main() {
@@ -17,20 +20,39 @@ async fn main() {
     let pool = db::init_db().await;
 
     // CORS Setup
+    let allowed_origins = [
+        HeaderValue::from_static("http://localhost:5173"),
+        HeaderValue::from_static("https://othello.jhqcat.com"),
+    ];
+
     let cors = CorsLayer::new()
-        .allow_origin("http://localhost:5173".parse::<axum::http::HeaderValue>().unwrap())
-        .allow_origin("https://othello.jhqcat.com".parse::<axum::http::HeaderValue>().unwrap())
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS])
         .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION])
         .allow_credentials(true);
 
-    let auth = routes::auth(pool.clone()).await;
+    // Protected Routes
+    let protected = Router::new()
+        .route("/protected", get(|| async { "OK, Protected" }))
+        .layer(from_fn(csrf_protect))    // CSRF check (only POST, PUT, PATCH, DELETE)
+        .layer(from_fn(authorize));       // JWT check
 
-    // Router
+    // Public Routes
     let app = Router::new()
+        // Database
+        .with_state(pool.clone())
+
+        // Basic routes
         .route("/health", get(|| async { "OK" }))
         .route("/csrf/init", get(init_csrf))
-        .merge(auth)
+
+        // Auth routes
+        .merge(routes::auth(pool.clone()).await)
+
+        // Prefix protected routes with /api
+        .nest("/api", protected)
+
+        // CORS applies to all routes
         .layer(cors);
 
     // Run Server

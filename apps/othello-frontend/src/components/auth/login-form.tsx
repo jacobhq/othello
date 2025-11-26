@@ -28,6 +28,7 @@ export function LoginForm({
     if (!token) {
       fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/csrf/init`, {
         method: "GET",
+        credentials: "include"
       })
         .then(() => {
           token = readCookie();
