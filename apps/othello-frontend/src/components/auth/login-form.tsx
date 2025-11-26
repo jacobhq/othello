@@ -26,7 +26,7 @@ export function LoginForm({
     let token = readCookie();
 
     if (!token) {
-      fetch("http://localhost:8080/csrf/init", {
+      fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/csrf/init`, {
         method: "GET",
       })
         .then(() => {
