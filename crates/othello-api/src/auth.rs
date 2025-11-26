@@ -1,5 +1,6 @@
 use axum::{body::Body, response::IntoResponse, extract::{Request, Json}, http, http::{Response, StatusCode}, middleware::Next, Form};
 use axum::extract::State;
+use axum::http::header::COOKIE;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
 use bcrypt::{hash, verify, DEFAULT_COST};
@@ -126,10 +127,12 @@ pub async fn authorize(
 pub struct SignInData {
     pub email: String,
     pub password: String,
+    pub csrf: String,
 }
 
 pub async fn sign_in(
     State(pool): State<PgPool>,
+    headers: HeaderMap,
     Form(user_data): Form<SignInData>,
 ) -> impl IntoResponse {
     let login_url = if cfg!(debug_assertions) {
@@ -137,6 +140,17 @@ pub async fn sign_in(
     } else {
         "https://othello.jhqcat.com/auth/login?error=incorrect_credentials"
     };
+
+    let invalid_csrf_redirect = if cfg!(debug_assertions) {
+        "http://localhost:5173/auth/login?error=csrf"
+    } else {
+        "https://othello.jhqcat.com/auth/login?error=csrf"
+    };
+
+    // Validate CSRF
+    if !validate_csrf(&headers, &user_data.csrf) {
+        return Redirect::to(invalid_csrf_redirect).into_response();
+    }
 
     // 1. Look up account
     let account = match retrieve_user_by_email(&pool, &user_data.email).await {
@@ -205,6 +219,26 @@ pub async fn sign_in(
 
     let response = (headers, Redirect::to(redirect_target)).into_response();
     response
+}
+
+pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
+    // 1. Read Cookie header
+    let cookie_header = match headers.get(COOKIE).and_then(|h| h.to_str().ok()) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    // 2. Parse cookies (super simple)
+    let csrf_cookie = cookie_header
+        .split(';')
+        .map(|c| c.trim())
+        .find(|c| c.starts_with("csrf="))
+        .map(|c| c.trim_start_matches("csrf="));
+
+    match csrf_cookie {
+        Some(cookie_val) => cookie_val == form_value,
+        None => false,
+    }
 }
 
 
