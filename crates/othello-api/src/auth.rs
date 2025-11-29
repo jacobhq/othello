@@ -97,7 +97,7 @@ fn extract_jwt_from_cookie(headers: &HeaderMap) -> Option<String> {
         .map(|c| c.trim_start_matches("auth_token=").to_string())
 }
 
-pub async fn authorize(
+pub async fn authorise(
     mut req: Request,
     next: Next,
 ) -> impl IntoResponse {
@@ -256,6 +256,112 @@ pub async fn sign_in(
     response
 }
 
+#[derive(Deserialize)]
+pub struct SignUpData {
+    pub username: String,
+    pub email: String,
+    pub password: String,
+    pub csrf: String,
+}
+
+pub async fn sign_up(
+    State(pool): State<PgPool>,
+    headers: HeaderMap,
+    Form(data): Form<SignUpData>,
+) -> impl IntoResponse {
+    let base = if cfg!(debug_assertions) {
+        "http://localhost:5173/auth/signup"
+    } else {
+        "https://othello.jhqcat.com/auth/signup"
+    };
+
+    let redirect = |suffix: &str| Redirect::to(&format!("{}?error={}", base, suffix)).into_response();
+
+    // CSRF validation
+    if !validate_csrf(&headers, &data.csrf) {
+        return redirect("csrf");
+    }
+
+    // Input validation
+    if !validate_username(&data.username) {
+        return redirect("username_invalid");
+    }
+
+    if !validate_email(&data.email) {
+        return redirect("email_invalid");
+    }
+
+    if !validate_password(&data.password) {
+        return redirect("password_invalid");
+    }
+
+    // Check if email already exists
+    if let Ok(Some(_)) = retrieve_user_by_email(&pool, &data.email).await {
+        return redirect("email_taken");
+    }
+
+    // Check if username already exists
+    if let Ok(Some(_)) = retrieve_user_by_username(&pool, &data.username).await {
+        return redirect("username_taken");
+    }
+
+    // Hash password
+    let password_hash = match hash_password(&data.password) {
+        Ok(h) => h,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    // Insert user
+    let id = uuid::Uuid::new_v4().to_string();
+    let insert_result = sqlx::query(
+        r#"
+        INSERT INTO Account (id, username, email, password_hash, elo_rating, date_joined, is_admin)
+        VALUES ($1, $2, $3, $4, 1200, CURRENT_TIMESTAMP, false)
+        "#,
+    )
+        .bind(&id)
+        .bind(&data.username)
+        .bind(&data.email)
+        .bind(&password_hash)
+        .execute(&pool)
+        .await;
+
+    if insert_result.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // Generate JWT
+    let token = match encode_jwt(data.email.clone()) {
+        Ok(t) => t,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    // Set Cookie
+    let cookie_value = if cfg!(debug_assertions) {
+        format!("auth_token={}; Secure; HttpOnly; SameSite=None; Path=/", token)
+    } else {
+        let backend_domain = std::env::var("BACKEND_COOKIE_DOMAIN")
+            .expect("BACKEND_COOKIE_DOMAIN must be set");
+        format!(
+            "auth_token={}; Secure; HttpOnly; SameSite=None; Path=/; Domain={}",
+            token, backend_domain
+        )
+    };
+
+    let mut out_headers = HeaderMap::new();
+    out_headers.insert("Set-Cookie", cookie_value.parse().unwrap());
+
+    // Final redirect (login successful)
+    let redirect_target = if cfg!(debug_assertions) {
+        "http://localhost:5173/"
+    } else {
+        "https://othello.jhqcat.com/"
+    };
+
+    (out_headers, Redirect::to(redirect_target)).into_response()
+}
+
+
 pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
     // 1. Read Cookie header
     let cookie_header = match headers.get(COOKIE).and_then(|h| h.to_str().ok()) {
@@ -276,6 +382,21 @@ pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
     }
 }
 
+pub async fn retrieve_user_by_username(
+    pool: &PgPool,
+    username: &str,
+) -> Result<Option<Account>, sqlx::Error> {
+    sqlx::query_as::<_, Account>(
+        r#"
+        SELECT id, username, email, password_hash, elo_rating, date_joined, last_login, is_admin
+        FROM Account
+        WHERE username = $1
+        "#
+    )
+        .bind(username)
+        .fetch_optional(pool)
+        .await
+}
 
 pub async fn retrieve_user_by_email(
     pool: &PgPool,
@@ -293,4 +414,34 @@ pub async fn retrieve_user_by_email(
         .await?;
 
     Ok(account)
+}
+
+fn validate_username(username: &str) -> bool {
+    let valid_len = username.len() >= 4 && username.len() <= 20;
+    let valid_chars = username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric());
+
+    valid_len && valid_chars
+}
+
+fn validate_email(email: &str) -> bool {
+    if email.len() < 3 || email.len() > 254 {
+        return false;
+    }
+
+    let re = regex::Regex::new(
+        r"(?i)^[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z0-9-.]+$"
+    ).unwrap();
+
+    re.is_match(email)
+}
+
+fn validate_password(password: &str) -> bool {
+    let correct_length = password.len() >= 8 && password.len() <= 72;
+    let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+
+    correct_length && has_lower && has_upper && has_digit
 }

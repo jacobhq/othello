@@ -11,7 +11,7 @@ use axum::http::HeaderValue;
 use axum::middleware::from_fn;
 use tokio::net::TcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use crate::auth::authorize;
+use crate::auth::authorise;
 use crate::csrf::{csrf_protect, init_csrf};
 
 #[tokio::main]
@@ -35,7 +35,7 @@ async fn main() {
     let protected = Router::new()
         .route("/protected", get(|| async { "OK, Protected" }))
         .layer(from_fn(csrf_protect))    // CSRF check (only POST, PUT, PATCH, DELETE)
-        .layer(from_fn(authorize));       // JWT check
+        .layer(from_fn(authorise));       // JWT check
 
     // Public Routes
     let app = Router::new()
