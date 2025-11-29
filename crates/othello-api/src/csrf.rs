@@ -1,5 +1,5 @@
 use axum::body::Body;
-use axum::extract::Request;
+use axum::extract::{FromRequestParts, Request};
 use axum::http::{HeaderMap, Method, Response, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
@@ -8,7 +8,6 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde_json::json;
 
 pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
-    println!("{:?}", jar.get("csrf"));
     if jar.get("csrf").is_none() {
         let token = generate_csrf();
         let cookie: Cookie = if cfg!(debug_assertions) {
@@ -28,22 +27,10 @@ pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
                 .build()
         };
 
-        println!("{cookie:?}");
-
         return jar.add(cookie).into_response();
     }
 
     "no".into_response()
-}
-
-fn extract_csrf_cookie(headers: &HeaderMap) -> Option<String> {
-    let cookies = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
-
-    cookies
-        .split(';')
-        .map(|c| c.trim())
-        .find(|c| c.starts_with("csrf="))
-        .map(|c| c.trim_start_matches("csrf=").to_string())
 }
 
 fn extract_csrf_header(headers: &HeaderMap) -> Option<String> {
@@ -62,10 +49,20 @@ pub async fn csrf_protect(
         return Ok(next.run(req).await);
     }
 
-    let cookie_token = extract_csrf_cookie(req.headers());
+    let (mut parts, body) = req.into_parts();
+
+    let jar = CookieJar::from_request_parts(&mut parts, &()).await.unwrap();
+
+    let req = Request::from_parts(parts, body);
+
+    let cookie_token = jar.get("csrf").map(|c| c.value().to_string());
     let header_token = extract_csrf_header(req.headers());
 
-    if cookie_token.is_none() || header_token.is_none() || cookie_token != header_token {
+    // Validate
+    if cookie_token.is_none()
+        || header_token.is_none()
+        || cookie_token != header_token
+    {
         let body = axum::Json(json!({ "error": "CSRF validation failed" }));
         return Err((StatusCode::FORBIDDEN, body));
     }

@@ -1,15 +1,22 @@
 use axum::extract::State;
-use axum::http::header::COOKIE;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
-use axum::{body::Body, extract::{Json, Request}, http::{Response, StatusCode}, middleware::Next, response::IntoResponse, Form};
-use bcrypt::{hash, verify, DEFAULT_COST};
+use axum::{
+    Form,
+    body::Body,
+    extract::{Json, Request},
+    http::{Response, StatusCode},
+    middleware::Next,
+    response::IntoResponse,
+};
+use axum_extra::extract::CookieJar;
+use axum_extra::extract::cookie::{Cookie, SameSite};
+use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
-
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
@@ -43,8 +50,7 @@ impl IntoResponse for AuthError {
 }
 
 pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set in .env file");
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set in .env file");
 
     let now = Utc::now();
     let expire: chrono::TimeDelta = Duration::hours(24);
@@ -59,19 +65,18 @@ pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
         &claim,
         &EncodingKey::from_secret(secret.as_ref()),
     )
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub fn decode_jwt(jwt: String) -> Result<TokenData<Claims>, StatusCode> {
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set in .env file");
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set in .env file");
 
     let result: Result<TokenData<Claims>, StatusCode> = decode(
         &jwt,
         &DecodingKey::from_secret(jwt_secret.as_ref()),
         &Validation::default(),
     )
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
     result
 }
 
@@ -88,26 +93,21 @@ pub struct Account {
 }
 
 fn extract_jwt_from_cookie(headers: &HeaderMap) -> Option<String> {
-    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    let jar = CookieJar::from_headers(headers);
 
-    cookie_header
-        .split(';')
-        .map(|c| c.trim())
-        .find(|c| c.starts_with("auth_token="))
-        .map(|c| c.trim_start_matches("auth_token=").to_string())
+    jar.get("auth_token")
+        .map(|cookie| cookie.value().to_string())
 }
 
-pub async fn authorise(
-    mut req: Request,
-    next: Next,
-) -> impl IntoResponse {
+pub async fn authorise(mut req: Request, next: Next) -> impl IntoResponse {
     let token = match extract_jwt_from_cookie(req.headers()) {
         Some(t) => t,
         None => {
             return AuthError {
                 message: "Missing auth cookie".into(),
                 status_code: StatusCode::FORBIDDEN,
-            }.into_response();
+            }
+            .into_response();
         }
     };
 
@@ -118,7 +118,7 @@ pub async fn authorise(
                 message: "Invalid or expired token".into(),
                 status_code: StatusCode::UNAUTHORIZED,
             }
-                .into_response();
+            .into_response();
         }
     };
 
@@ -133,7 +133,6 @@ pub async fn authorise(
         }
     };
 
-
     let account = match retrieve_user_by_email(&pool, &token_data.claims.email).await {
         Ok(Some(acc)) => acc,
         Ok(None) => {
@@ -141,14 +140,14 @@ pub async fn authorise(
                 message: "User not found".into(),
                 status_code: StatusCode::UNAUTHORIZED,
             }
-                .into_response();
+            .into_response();
         }
         Err(_) => {
             return AuthError {
                 message: "Database error".into(),
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
             }
-                .into_response();
+            .into_response();
         }
     };
 
@@ -156,7 +155,6 @@ pub async fn authorise(
 
     next.run(req).await
 }
-
 
 #[derive(Deserialize)]
 pub struct SignInData {
@@ -222,26 +220,10 @@ pub async fn sign_in(
         .ok();
 
     // 5. Build the cookie
-    let cookie_value = if cfg!(debug_assertions) {
-        // Development: no Domain attribute (localhost behaves better)
-        format!(
-            "auth_token={}; Secure; HttpOnly; SameSite=None; Path=/",
-            token
-        )
-    } else {
-        // Production: include Domain
-        let backend_domain = std::env::var("BACKEND_COOKIE_DOMAIN")
-            .expect("BACKEND_COOKIE_DOMAIN must be set in production");
-
-        format!(
-            "auth_token={}; Secure; HttpOnly; SameSite=None; Path=/; Domain={}",
-            token,
-            backend_domain
-        )
-    };
+    let cookie = generate_auth_cookie(token);
 
     let mut headers = HeaderMap::new();
-    headers.insert("Set-Cookie", cookie_value.parse().unwrap());
+    headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // 6. Send JSON back with cookie set
     let redirect_target = if cfg!(debug_assertions) {
@@ -252,8 +234,23 @@ pub async fn sign_in(
         "https://othello.jhqcat.com/"
     };
 
-    let response = (headers, Redirect::to(redirect_target)).into_response();
-    response
+    (headers, Redirect::to(redirect_target)).into_response()
+}
+
+fn generate_auth_cookie(token: String) -> Cookie<'static> {
+    let mut cookie = Cookie::build(("auth_token", token.clone()))
+        .path("/")
+        .secure(true)
+        .http_only(true)
+        .same_site(SameSite::None);
+
+    if !cfg!(debug_assertions) {
+        let backend_domain =
+            std::env::var("BACKEND_COOKIE_DOMAIN").expect("BACKEND_COOKIE_DOMAIN must be set");
+        cookie = cookie.domain(backend_domain);
+    }
+
+    cookie.build()
 }
 
 #[derive(Deserialize)]
@@ -275,7 +272,8 @@ pub async fn sign_up(
         "https://othello.jhqcat.com/auth/signup"
     };
 
-    let redirect = |suffix: &str| Redirect::to(&format!("{}?error={}", base, suffix)).into_response();
+    let redirect =
+        |suffix: &str| Redirect::to(&format!("{}?error={}", base, suffix)).into_response();
 
     // CSRF validation
     if !validate_csrf(&headers, &data.csrf) {
@@ -319,12 +317,12 @@ pub async fn sign_up(
         VALUES ($1, $2, $3, $4, 1200, CURRENT_TIMESTAMP, false)
         "#,
     )
-        .bind(&id)
-        .bind(&data.username)
-        .bind(&data.email)
-        .bind(&password_hash)
-        .execute(&pool)
-        .await;
+    .bind(&id)
+    .bind(&data.username)
+    .bind(&data.email)
+    .bind(&password_hash)
+    .execute(&pool)
+    .await;
 
     if insert_result.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -337,19 +335,10 @@ pub async fn sign_up(
     };
 
     // Set Cookie
-    let cookie_value = if cfg!(debug_assertions) {
-        format!("auth_token={}; Secure; HttpOnly; SameSite=None; Path=/", token)
-    } else {
-        let backend_domain = std::env::var("BACKEND_COOKIE_DOMAIN")
-            .expect("BACKEND_COOKIE_DOMAIN must be set");
-        format!(
-            "auth_token={}; Secure; HttpOnly; SameSite=None; Path=/; Domain={}",
-            token, backend_domain
-        )
-    };
+    let cookie = generate_auth_cookie(token.clone());
 
     let mut out_headers = HeaderMap::new();
-    out_headers.insert("Set-Cookie", cookie_value.parse().unwrap());
+    out_headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // Final redirect (login successful)
     let redirect_target = if cfg!(debug_assertions) {
@@ -361,20 +350,12 @@ pub async fn sign_up(
     (out_headers, Redirect::to(redirect_target)).into_response()
 }
 
-
 pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
-    // 1. Read Cookie header
-    let cookie_header = match headers.get(COOKIE).and_then(|h| h.to_str().ok()) {
-        Some(c) => c,
-        None => return false,
-    };
+    let jar = CookieJar::from_headers(headers);
 
-    // 2. Parse cookies (super simple)
-    let csrf_cookie = cookie_header
-        .split(';')
-        .map(|c| c.trim())
-        .find(|c| c.starts_with("csrf="))
-        .map(|c| c.trim_start_matches("csrf="));
+    let csrf_cookie = jar
+        .get("auth_token")
+        .map(|cookie| cookie.value().to_string());
 
     match csrf_cookie {
         Some(cookie_val) => cookie_val == form_value,
@@ -391,11 +372,11 @@ pub async fn retrieve_user_by_username(
         SELECT id, username, email, password_hash, elo_rating, date_joined, last_login, is_admin
         FROM Account
         WHERE username = $1
-        "#
+        "#,
     )
-        .bind(username)
-        .fetch_optional(pool)
-        .await
+    .bind(username)
+    .fetch_optional(pool)
+    .await
 }
 
 pub async fn retrieve_user_by_email(
@@ -409,18 +390,16 @@ pub async fn retrieve_user_by_email(
         WHERE email = $1
         "#,
     )
-        .bind(email)
-        .fetch_optional(pool)
-        .await?;
+    .bind(email)
+    .fetch_optional(pool)
+    .await?;
 
     Ok(account)
 }
 
 fn validate_username(username: &str) -> bool {
     let valid_len = username.len() >= 4 && username.len() <= 20;
-    let valid_chars = username
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric());
+    let valid_chars = username.chars().all(|c| c.is_ascii_alphanumeric());
 
     valid_len && valid_chars
 }
@@ -430,9 +409,7 @@ fn validate_email(email: &str) -> bool {
         return false;
     }
 
-    let re = regex::Regex::new(
-        r"(?i)^[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z0-9-.]+$"
-    ).unwrap();
+    let re = regex::Regex::new(r"(?i)^[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z0-9-.]+$").unwrap();
 
     re.is_match(email)
 }
