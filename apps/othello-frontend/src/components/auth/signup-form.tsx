@@ -23,28 +23,22 @@ export function SignupForm({
           </p>
         </div>
         <Field>
-          <FieldLabel htmlFor="name">Full Name</FieldLabel>
-          <Input id="name" type="text" placeholder="John Doe" required/>
+          <FieldLabel htmlFor="email">Email</FieldLabel>
+          <Input id="email" type="email" placeholder="email@example.com" maxLength={254} required/>
         </Field>
         <Field>
-          <FieldLabel htmlFor="email">Email</FieldLabel>
-          <Input id="email" type="email" placeholder="m@example.com" required/>
+          <FieldLabel htmlFor="username">Username</FieldLabel>
+          <Input id="username" type="text" placeholder="johnny123" minLength={4} maxLength={20} pattern="^[a-zA-Z0-9]+$" required/>
           <FieldDescription>
-            We&apos;ll use this to contact you. We will not share your email
-            with anyone else.
+            Must be unique, and consist of between 4 and 20 alphanumeric characters.
           </FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="password">Password</FieldLabel>
-          <Input id="password" type="password" required/>
+          <Input id="password" type="password" placeholder="••••••••••••" minLength={8} maxLength={72} pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}" required/>
           <FieldDescription>
-            Must be at least 8 characters long.
+            Must be a combination of digits, uppercase, and lowercase characters at least 8 characters long.
           </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
-          <Input id="confirm-password" type="password" required/>
-          <FieldDescription>Please confirm your password.</FieldDescription>
         </Field>
         <Field>
           <Button type="submit">Create Account</Button>
