@@ -28,23 +28,21 @@ export function SignupForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="email">Email</FieldLabel>
-          <Input id="email" type="email" placeholder="m@example.com" required/>
+          <Input id="email" type="email" placeholder="email@example.com" required/>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="username">Username</FieldLabel>
+          <Input id="username" type="text" placeholder="johnny123" minLength={4} maxLength={20} pattern="^[a-zA-Z0-9]+$" required/>
           <FieldDescription>
-            We&apos;ll use this to contact you. We will not share your email
-            with anyone else.
+            Must consist of 4-20 alphanumeric characters.
           </FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="password">Password</FieldLabel>
-          <Input id="password" type="password" required/>
+          <Input id="password" type="password" placeholder="••••••••••••" required/>
           <FieldDescription>
             Must be at least 8 characters long.
           </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
-          <Input id="confirm-password" type="password" required/>
-          <FieldDescription>Please confirm your password.</FieldDescription>
         </Field>
         <Field>
           <Button type="submit">Create Account</Button>
