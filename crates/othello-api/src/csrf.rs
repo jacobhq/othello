@@ -1,15 +1,15 @@
+use crate::env_or_dotenv;
 use axum::body::Body;
 use axum::extract::{FromRequestParts, Request};
 use axum::http::{HeaderMap, Method, Response, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use dotenvy_macro::dotenv;
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::json;
 use time::Duration;
 
-const APEX_COOKIE_DOMAIN: &str = dotenv!("APEX_COOKIE_DOMAIN");
+const APEX_COOKIE_DOMAIN: &str = env_or_dotenv!("APEX_COOKIE_DOMAIN");
 
 pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
     if jar.get("csrf").is_none() {

@@ -1,7 +1,7 @@
-use dotenvy_macro::dotenv;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use crate::env_or_dotenv;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
-const DATABASE_URL: &str = dotenv!("DATABASE_URL");
+const DATABASE_URL: &str = env_or_dotenv!("DATABASE_URL");
 
 pub async fn init_db() -> PgPool {
     PgPoolOptions::new()
