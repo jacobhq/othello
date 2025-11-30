@@ -14,6 +14,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import posthog from "posthog-js";
+import {Link} from "@tanstack/react-router";
 
 export default function Board() {
     const [game, setGame] = useState<WasmGame | null>(null);
@@ -96,12 +97,15 @@ export default function Board() {
                         <DialogClose asChild>
                             <Button variant="outline">Close</Button>
                         </DialogClose>
-                        <Button type="submit" disabled>Create account</Button>
+                        <Button asChild>
+                          <Link to="/auth/signup">Create account</Link>
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
             <Score highlightedPlayer={gameOver ? undefined : currentPlayer} whiteScore={score[0]} blackScore={score[1]}/>
             <div
+                id="game"
                 className="grid grid-rows-8 bg-green-600 rounded-md p-1 sm:p-2 xl:p-3 gap-1 sm:gap-2 xl:gap-3 aspect-square max-w-3xl mx-auto">
                 {Array.from({length: 8}, (_, i) => (
                     <div className="grid grid-cols-8 gap-1 sm:gap-2 xl:gap-3" key={i}>

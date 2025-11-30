@@ -1,0 +1,16 @@
+### Sign in with demo credentials
+POST http://localhost:8080/auth/sign-in
+Content-Type: application/json
+
+{
+  "email": "me@jhqcat.com",
+  "password": "okon"
+}
+
+
+### Attempt to access protected route with no auth
+GET http://localhost:8080/protected
+
+### Attempt to access protected route with a JWT
+GET http://localhost:8080/protected
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3NjI3MjAyOTgsImlhdCI6MTc2MjYzMzg5OCwiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.1LCfU3yCxSTME3PwFO7_gj86UYxna3MlhzlTaL2y84A

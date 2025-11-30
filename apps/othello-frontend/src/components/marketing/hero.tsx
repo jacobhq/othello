@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button.tsx'
 import {Skeleton} from "@/components/ui/skeleton.tsx";
+import {Link} from "@tanstack/react-router";
 
 export default function Hero() {
     return (
@@ -14,24 +15,24 @@ export default function Hero() {
                         <Button
                             rounded="full"
                             asChild>
-                            <a href="#link">
-                                <span className="text-nowrap">Get Started</span>
+                            <a href="#game">
+                                <span className="text-nowrap">Play Othello</span>
                             </a>
                         </Button>
                         <Button
                             rounded="full"
                             asChild
                             variant="ghost">
-                            <a href="#link">
-                                <span className="text-nowrap">View Demo</span>
-                            </a>
+                            <Link to="/auth/signup">
+                                <span className="text-nowrap">Sign Up</span>
+                            </Link>
                         </Button>
                     </div>
                 </div>
 
                 <div className="relative mt-12 overflow-hidden rounded-3xl bg-black/10 md:mt-16">
                     <img
-                        src="https://images.unsplash.com/photo-1547623641-d2c56c03e2a7?q=80&w=3087&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+                        src="https://images.unsplash.com/photo-1547623641-d2c56c03e2a7?q=80&w=3087&auto=format&fit=crop"
                         alt=""
                         className="absolute inset-0 size-full object-cover"
                     />
