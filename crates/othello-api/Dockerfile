@@ -31,5 +31,7 @@ RUN cargo build --release --bin othello-api
 # We do not need the Rust toolchain to run the binary!
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/othello-api /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/othello-api"]
