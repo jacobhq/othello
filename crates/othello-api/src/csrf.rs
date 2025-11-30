@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::json;
+use time::Duration;
 
 pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
     if jar.get("csrf").is_none() {
@@ -24,6 +25,7 @@ pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
                 .same_site(SameSite::None)
                 .secure(true)
                 .http_only(false)
+                .max_age(Duration::hours(1))
                 .build()
         };
 

@@ -17,6 +17,8 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, deco
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use time::Duration as TimeDuration;
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
@@ -99,7 +101,7 @@ fn extract_jwt_from_cookie(headers: &HeaderMap) -> Option<String> {
         .map(|cookie| cookie.value().to_string())
 }
 
-pub async fn authorise(mut req: Request, next: Next) -> impl IntoResponse {
+pub async fn authorise(State(pool): State<PgPool>, mut req: Request, next: Next) -> impl IntoResponse {
     let token = match extract_jwt_from_cookie(req.headers()) {
         Some(t) => t,
         None => {
@@ -119,17 +121,6 @@ pub async fn authorise(mut req: Request, next: Next) -> impl IntoResponse {
                 status_code: StatusCode::UNAUTHORIZED,
             }
             .into_response();
-        }
-    };
-
-    let pool = match req.extensions().get::<PgPool>() {
-        Some(pool) => pool.clone(),
-        None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "missing database pool in request state",
-            )
-                .into_response();
         }
     };
 
@@ -238,11 +229,17 @@ pub async fn sign_in(
 }
 
 fn generate_auth_cookie(token: String) -> Cookie<'static> {
+    // JWT expires in 24 hours
+    let max_age = TimeDuration::hours(24);
+    let expires = OffsetDateTime::now_utc() + max_age;
+
     let mut cookie = Cookie::build(("auth_token", token.clone()))
         .path("/")
         .secure(true)
         .http_only(true)
-        .same_site(SameSite::None);
+        .same_site(SameSite::None)
+        .max_age(max_age)
+        .expires(expires);
 
     if !cfg!(debug_assertions) {
         let backend_domain =
@@ -314,7 +311,7 @@ pub async fn sign_up(
     let insert_result = sqlx::query(
         r#"
         INSERT INTO Account (id, username, email, password_hash, elo_rating, date_joined, is_admin)
-        VALUES ($1, $2, $3, $4, 1200, CURRENT_TIMESTAMP, false)
+        VALUES ($1, $2, $3, $4, 800, CURRENT_TIMESTAMP, false)
         "#,
     )
     .bind(&id)
@@ -354,7 +351,7 @@ pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
     let jar = CookieJar::from_headers(headers);
 
     let csrf_cookie = jar
-        .get("auth_token")
+        .get("csrf")
         .map(|cookie| cookie.value().to_string());
 
     match csrf_cookie {

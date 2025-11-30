@@ -8,7 +8,7 @@ use axum::{routing::get, Router};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
 use axum::http::HeaderValue;
-use axum::middleware::from_fn;
+use axum::middleware::{from_fn, from_fn_with_state};
 use tokio::net::TcpListener;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use crate::auth::authorise;
@@ -35,7 +35,7 @@ async fn main() {
     let protected = Router::new()
         .route("/protected", get(|| async { "OK, Protected" }))
         .layer(from_fn(csrf_protect))    // CSRF check (only POST, PUT, PATCH, DELETE)
-        .layer(from_fn(authorise));       // JWT check
+        .layer(from_fn_with_state(pool.clone(), authorise));       // JWT check
 
     // Public Routes
     let app = Router::new()
