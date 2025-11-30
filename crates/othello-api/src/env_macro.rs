@@ -8,7 +8,7 @@ macro_rules! env_or_dotenv {
 
         #[cfg(not(debug_assertions))]
         {
-            std::env::var($key).expect(concat!("Missing env var: ", $key))
+            env!($key)
         }
     }};
 }
