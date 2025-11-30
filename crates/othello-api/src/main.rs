@@ -4,15 +4,18 @@ mod auth;
 mod db;
 mod csrf;
 
-use axum::{routing::get, Router};
-use dotenvy::dotenv;
-use std::net::SocketAddr;
-use axum::http::HeaderValue;
-use axum::middleware::{from_fn, from_fn_with_state};
-use tokio::net::TcpListener;
-use tower_http::cors::{AllowOrigin, CorsLayer};
 use crate::auth::authorise;
 use crate::csrf::{csrf_protect, init_csrf};
+use axum::http::HeaderValue;
+use axum::middleware::{from_fn, from_fn_with_state};
+use axum::{routing::get, Router};
+use dotenvy::dotenv;
+use dotenvy_macro::dotenv;
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
+
+const FRONTEND_URL: &str = dotenv!("FRONTEND_URL");
 
 #[tokio::main]
 async fn main() {
@@ -20,13 +23,8 @@ async fn main() {
     let pool = db::init_db().await;
 
     // CORS Setup
-    let allowed_origins = [
-        HeaderValue::from_static("http://localhost:5173"),
-        HeaderValue::from_static("https://othello.jhqcat.com"),
-    ];
-
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_origin(FRONTEND_URL.parse::<HeaderValue>().unwrap())
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS])
         .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION])
         .allow_credentials(true);

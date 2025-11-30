@@ -13,12 +13,18 @@ use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
+use dotenvy_macro::dotenv;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use time::Duration as TimeDuration;
+
+const JWT_SECRET: &str = dotenv!("JWT_SECRET");
+const FRONTEND_URL: &str = dotenv!("FRONTEND_URL");
+const BACKEND_COOKIE_DOMAIN: &str = dotenv!("BACKEND_COOKIE_DOMAIN");
+
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
@@ -52,30 +58,25 @@ impl IntoResponse for AuthError {
 }
 
 pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
-    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set in .env file");
-
     let now = Utc::now();
     let expire: chrono::TimeDelta = Duration::hours(24);
     let exp: usize = (now + expire).timestamp() as usize;
     let iat: usize = now.timestamp() as usize;
 
     let claim = Claims { iat, exp, email };
-    let secret = jwt_secret.clone();
 
     encode(
         &Header::default(),
         &claim,
-        &EncodingKey::from_secret(secret.as_ref()),
+        &EncodingKey::from_secret(JWT_SECRET.as_ref()),
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub fn decode_jwt(jwt: String) -> Result<TokenData<Claims>, StatusCode> {
-    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set in .env file");
-
     let result: Result<TokenData<Claims>, StatusCode> = decode(
         &jwt,
-        &DecodingKey::from_secret(jwt_secret.as_ref()),
+        &DecodingKey::from_secret(JWT_SECRET.as_ref()),
         &Validation::default(),
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
@@ -159,21 +160,12 @@ pub async fn sign_in(
     headers: HeaderMap,
     Form(user_data): Form<SignInData>,
 ) -> impl IntoResponse {
-    let login_url = if cfg!(debug_assertions) {
-        "http://localhost:5173/auth/login?error=incorrect_credentials"
-    } else {
-        "https://othello.jhqcat.com/auth/login?error=incorrect_credentials"
-    };
-
-    let invalid_csrf_redirect = if cfg!(debug_assertions) {
-        "http://localhost:5173/auth/login?error=csrf"
-    } else {
-        "https://othello.jhqcat.com/auth/login?error=csrf"
-    };
+    let login_url = format!("{}/auth/login?error=incorrect_credentials", FRONTEND_URL);
+    let invalid_csrf_redirect = format!("{}/auth/login?error=csrf", FRONTEND_URL);
 
     // Validate CSRF
     if !validate_csrf(&headers, &user_data.csrf) {
-        return Redirect::to(invalid_csrf_redirect).into_response();
+        return Redirect::to(&invalid_csrf_redirect).into_response();
     }
 
     // 1. Look up account
@@ -184,7 +176,7 @@ pub async fn sign_in(
 
     let account = match account {
         Some(acc) => acc,
-        None => return Redirect::to(login_url).into_response(),
+        None => return Redirect::to(&login_url).into_response(),
     };
 
     // 2. Verify password
@@ -194,7 +186,7 @@ pub async fn sign_in(
     };
 
     if !valid {
-        return Redirect::to(login_url).into_response();
+        return Redirect::to(&login_url).into_response();
     }
 
     // 3. Generate JWT
@@ -217,15 +209,7 @@ pub async fn sign_in(
     headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // 6. Send JSON back with cookie set
-    let redirect_target = if cfg!(debug_assertions) {
-        // Dev
-        "http://localhost:5173/"
-    } else {
-        // Production
-        "https://othello.jhqcat.com/"
-    };
-
-    (headers, Redirect::to(redirect_target)).into_response()
+    (headers, Redirect::to(FRONTEND_URL)).into_response()
 }
 
 fn generate_auth_cookie(token: String) -> Cookie<'static> {
@@ -242,9 +226,7 @@ fn generate_auth_cookie(token: String) -> Cookie<'static> {
         .expires(expires);
 
     if !cfg!(debug_assertions) {
-        let backend_domain =
-            std::env::var("BACKEND_COOKIE_DOMAIN").expect("BACKEND_COOKIE_DOMAIN must be set");
-        cookie = cookie.domain(backend_domain);
+        cookie = cookie.domain(BACKEND_COOKIE_DOMAIN);
     }
 
     cookie.build()
@@ -263,14 +245,8 @@ pub async fn sign_up(
     headers: HeaderMap,
     Form(data): Form<SignUpData>,
 ) -> impl IntoResponse {
-    let base = if cfg!(debug_assertions) {
-        "http://localhost:5173/auth/signup"
-    } else {
-        "https://othello.jhqcat.com/auth/signup"
-    };
-
     let redirect =
-        |suffix: &str| Redirect::to(&format!("{}?error={}", base, suffix)).into_response();
+        |suffix: &str| Redirect::to(&format!("{}/auth/signup?error={}", FRONTEND_URL, suffix)).into_response();
 
     // CSRF validation
     if !validate_csrf(&headers, &data.csrf) {
@@ -338,13 +314,7 @@ pub async fn sign_up(
     out_headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // Final redirect (login successful)
-    let redirect_target = if cfg!(debug_assertions) {
-        "http://localhost:5173/"
-    } else {
-        "https://othello.jhqcat.com/"
-    };
-
-    (out_headers, Redirect::to(redirect_target)).into_response()
+    (out_headers, Redirect::to(FRONTEND_URL)).into_response()
 }
 
 pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {

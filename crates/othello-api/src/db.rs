@@ -1,12 +1,12 @@
+use dotenvy_macro::dotenv;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
-pub async fn init_db() -> PgPool {
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set in .env file");
+const DATABASE_URL: &str = dotenv!("DATABASE_URL");
 
+pub async fn init_db() -> PgPool {
     PgPoolOptions::new()
         .max_connections(5)
-        .connect(&database_url)
+        .connect(DATABASE_URL)
         .await
         .expect("Failed to connect to database")
 }
