@@ -3,6 +3,7 @@ mod services;
 mod auth;
 mod db;
 mod csrf;
+mod env_macro;
 
 use crate::auth::authorise;
 use crate::csrf::{csrf_protect, init_csrf};
@@ -10,12 +11,11 @@ use axum::http::HeaderValue;
 use axum::middleware::{from_fn, from_fn_with_state};
 use axum::{routing::get, Router};
 use dotenvy::dotenv;
-use dotenvy_macro::dotenv;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
-const FRONTEND_URL: &str = dotenv!("FRONTEND_URL");
+const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
 
 #[tokio::main]
 async fn main() {

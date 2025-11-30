@@ -1,29 +1,29 @@
+use crate::env_or_dotenv;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
 use axum::{
-    Form,
     body::Body,
     extract::{Json, Request},
     http::{Response, StatusCode},
     middleware::Next,
     response::IntoResponse,
+    Form,
 };
-use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use bcrypt::{DEFAULT_COST, hash, verify};
+use axum_extra::extract::CookieJar;
+use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Duration, Utc};
-use dotenvy_macro::dotenv;
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
-use time::OffsetDateTime;
 use time::Duration as TimeDuration;
+use time::OffsetDateTime;
 
-const JWT_SECRET: &str = dotenv!("JWT_SECRET");
-const FRONTEND_URL: &str = dotenv!("FRONTEND_URL");
-const BACKEND_COOKIE_DOMAIN: &str = dotenv!("BACKEND_COOKIE_DOMAIN");
+const JWT_SECRET: &str = env_or_dotenv!("JWT_SECRET");
+const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
+const BACKEND_COOKIE_DOMAIN: &str = env_or_dotenv!("BACKEND_COOKIE_DOMAIN");
 
 
 #[derive(Serialize, Deserialize)]
