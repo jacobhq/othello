@@ -9,14 +9,26 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PlayRouteRouteImport } from './routes/play/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PlayIndexRouteImport } from './routes/play/index'
 import { Route as AuthSignupRouteImport } from './routes/auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 
+const PlayRouteRoute = PlayRouteRouteImport.update({
+  id: '/play',
+  path: '/play',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const PlayIndexRoute = PlayIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PlayRouteRoute,
 } as any)
 const AuthSignupRoute = AuthSignupRouteImport.update({
   id: '/auth/signup',
@@ -31,42 +43,62 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/play': typeof PlayRouteRouteWithChildren
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
+  '/play/': typeof PlayIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
+  '/play': typeof PlayIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/play': typeof PlayRouteRouteWithChildren
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
+  '/play/': typeof PlayIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth/login' | '/auth/signup'
+  fullPaths: '/' | '/play' | '/auth/login' | '/auth/signup' | '/play/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth/login' | '/auth/signup'
-  id: '__root__' | '/' | '/auth/login' | '/auth/signup'
+  to: '/' | '/auth/login' | '/auth/signup' | '/play'
+  id: '__root__' | '/' | '/play' | '/auth/login' | '/auth/signup' | '/play/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PlayRouteRoute: typeof PlayRouteRouteWithChildren
   AuthLoginRoute: typeof AuthLoginRoute
   AuthSignupRoute: typeof AuthSignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/play': {
+      id: '/play'
+      path: '/play'
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/play/': {
+      id: '/play/'
+      path: '/'
+      fullPath: '/play/'
+      preLoaderRoute: typeof PlayIndexRouteImport
+      parentRoute: typeof PlayRouteRoute
     }
     '/auth/signup': {
       id: '/auth/signup'
@@ -85,8 +117,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface PlayRouteRouteChildren {
+  PlayIndexRoute: typeof PlayIndexRoute
+}
+
+const PlayRouteRouteChildren: PlayRouteRouteChildren = {
+  PlayIndexRoute: PlayIndexRoute,
+}
+
+const PlayRouteRouteWithChildren = PlayRouteRoute._addFileChildren(
+  PlayRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PlayRouteRoute: PlayRouteRouteWithChildren,
   AuthLoginRoute: AuthLoginRoute,
   AuthSignupRoute: AuthSignupRoute,
 }
