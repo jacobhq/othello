@@ -5,7 +5,7 @@ mod db;
 mod csrf;
 mod env_macro;
 
-use crate::auth::authorise;
+use crate::auth::{authorise, get_me};
 use crate::csrf::{csrf_protect, init_csrf};
 use axum::http::HeaderValue;
 use axum::middleware::{from_fn, from_fn_with_state};
@@ -32,6 +32,7 @@ async fn main() {
     // Protected Routes
     let protected = Router::new()
         .route("/protected", get(|| async { "OK, Protected" }))
+        .route("/user", get(get_me))
         .layer(from_fn(csrf_protect))    // CSRF check (only POST, PUT, PATCH, DELETE)
         .layer(from_fn_with_state(pool.clone(), authorise));       // JWT check
 

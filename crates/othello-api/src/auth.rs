@@ -2,14 +2,7 @@ use crate::env_or_dotenv;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
-use axum::{
-    body::Body,
-    extract::{Json, Request},
-    http::{Response, StatusCode},
-    middleware::Next,
-    response::IntoResponse,
-    Form,
-};
+use axum::{body::Body, extract::{Json, Request}, http::{Response, StatusCode}, middleware::Next, response::IntoResponse, Extension, Form};
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use axum_extra::extract::CookieJar;
 use bcrypt::{hash, verify, DEFAULT_COST};
@@ -389,3 +382,36 @@ fn validate_password(password: &str) -> bool {
 
     correct_length && has_lower && has_upper && has_digit
 }
+
+#[derive(Serialize)]
+pub struct PublicAccount {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub elo_rating: i32,
+    pub date_joined: chrono::NaiveDateTime,
+    pub last_login: Option<chrono::NaiveDateTime>,
+    pub is_admin: bool,
+}
+
+impl From<Account> for PublicAccount {
+    fn from(acc: Account) -> Self {
+        Self {
+            id: acc.id,
+            username: acc.username,
+            email: acc.email,
+            elo_rating: acc.elo_rating,
+            date_joined: acc.date_joined,
+            last_login: acc.last_login,
+            is_admin: acc.is_admin,
+        }
+    }
+}
+
+pub async fn get_me(
+    Extension(account): Extension<Account>,
+) -> impl IntoResponse {
+    let public: PublicAccount = account.into();
+    Json(public)
+}
+

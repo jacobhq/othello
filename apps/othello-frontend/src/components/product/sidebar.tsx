@@ -14,6 +14,7 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar"
 import {Badge} from "@/components/ui/badge";
+import {useLoaderData} from "@tanstack/react-router";
 
 // This is sample data.
 const data = {
@@ -108,6 +109,8 @@ const data = {
 }
 
 export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent>) {
+  const user = useLoaderData({ from: "/play" });
+
   return (
     <SidebarComponent collapsible="icon" {...props}>
       <SidebarHeader>
@@ -130,7 +133,7 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
         <SidebarNavigation items={data.navMain}/>
       </SidebarContent>
       <SidebarFooter>
-        <UserMenu user={data.user}/>
+        <UserMenu user={user}/>
       </SidebarFooter>
       <SidebarRail/>
     </SidebarComponent>
