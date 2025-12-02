@@ -3,17 +3,98 @@ import Board from "@/components/game/board.tsx";
 import {BarChart3, BookOpen, Bot, MessageCircleWarningIcon, UserPlus, Users, Zap} from "lucide-react";
 import {Button} from "@/components/ui/button.tsx";
 import {Alert, AlertDescription, AlertTitle} from "@/components/ui/alert.tsx";
+import {type ComponentType, useEffect, useState} from "react";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldSet,
+  FieldTitle
+} from "@/components/ui/field.tsx";
+import {RadioGroup, RadioGroupItem} from "@/components/ui/radio-group";
+import {Input} from "@/components/ui/input.tsx";
 
 export const Route = createFileRoute("/play/")({
   component: RouteComponent,
 })
 
+interface PlayMode {
+  icon: ComponentType,
+  title: string,
+  description: string,
+  color: string,
+  id: string,
+  disabled?: boolean
+}
+
+const playModes: PlayMode[] = [
+  {
+    icon: Zap,
+    title: "Play Online",
+    description: "Play vs a person of similar skill",
+    color: "yellow",
+    id: "play_online",
+    disabled: true
+  },
+  {
+    icon: Bot,
+    title: "Play Bots",
+    description: "Challenge a bot from Easy to Master",
+    color: "blue",
+    id: "play_bots",
+    disabled: true
+  },
+  {
+    icon: Users,
+    title: "Play a Friend",
+    description: "Invite a friend to a game of Othello",
+    color: "pink",
+    id: "play_friend",
+    disabled: true
+  },
+  {
+    icon: UserPlus,
+    title: "Pass and Play",
+    description: "Play locally with a friend on the same device",
+    color: "green",
+    id: "pass_and_play"
+  }
+]
+
 function RouteComponent() {
+  const [csrf, setCsrf] = useState("")
+
+  useEffect(() => {
+    const readCookie = () =>
+      document.cookie
+        .split("; ")
+        .find((x) => x.startsWith("csrf="))
+        ?.split("=")[1];
+
+    let token = readCookie();
+
+    if (!token) {
+      fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/csrf/init`, {
+        method: "GET",
+        credentials: "include"
+      })
+        .then(() => {
+          token = readCookie();
+          if (token) setCsrf(token);
+        })
+        .catch(console.error);
+    } else {
+      setCsrf(token);
+    }
+  }, []);
+
   return <>
-  <div className="flex flex-col 2xl:flex-row gap-6 p-4 w-full h-full">
-    <div className="flex items-center justify-center flex-1">
-      <Board disabled />
-    </div>
+    <div className="flex flex-col 2xl:flex-row gap-6 p-4 w-full h-full">
+      <div className="flex items-center justify-center flex-1">
+        <Board disabled/>
+      </div>
 
       {/* Play Modes */}
       <div className="flex flex-col gap-4 shrink grow">
@@ -24,50 +105,46 @@ function RouteComponent() {
           <h1 className="text-3xl font-bold">Play Othello</h1>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <Alert variant="destructive">
-            <MessageCircleWarningIcon />
+        <form className="flex flex-col gap-3" action={`${import.meta.env.VITE_PUBLIC_API_URL}/api/game/new`} method="POST">
+          <Alert variant="default" className="border-0 text-yellow-900 bg-yellow-100">
+            <MessageCircleWarningIcon/>
             <AlertTitle>Heads up!</AlertTitle>
-            <AlertDescription>
+            <AlertDescription className="text-yellow-700">
               Othello is currently in alpha. Not all features work yet.
             </AlertDescription>
           </Alert>
-          <PlayModeCard
-            icon={<Zap className="w-6 h-6"/>}
-            title="Play Online"
-            description="Play vs a person of similar skill"
-            iconBg="bg-yellow-500/10"
-            iconColor="text-yellow-500"
-          />
-          <PlayModeCard
-            icon={<Bot className="w-6 h-6"/>}
-            title="Play Bots"
-            description="Challenge a bot from Easy to Master"
-            iconBg="bg-blue-500/10"
-            iconColor="text-blue-500"
-          />
-          <PlayModeCard
-            icon={<Users className="w-6 h-6"/>}
-            title="Play a Friend"
-            description="Invite a friend to a game of Othello"
-            iconBg="bg-pink-500/10"
-            iconColor="text-pink-500"
-          />
-          <PlayModeCard
-            icon={<UserPlus className="w-6 h-6"/>}
-            title="Pass and Play"
-            description="Play locally with a friend on the same device"
-            iconBg="bg-green-500/10"
-            iconColor="text-green-500"
-          />
-        </div>
+          <Field hidden>
+            <Input id="csrf" name="csrf" type="hidden" value={csrf} readOnly required/>
+          </Field>
+          <FieldGroup>
+            <FieldSet>
+              <RadioGroup defaultValue="pass_and_play" name="game_type">
+                {playModes.map((playMode) => (
+                  <FieldLabel htmlFor={playMode.id}>
+                    <Field className="has-disabled:opacity-50 has-disabled:cursor-not-allowed" orientation="horizontal">
+                      <FieldContent>
+                        <FieldTitle className="font-bold text-lg">{playMode.title}</FieldTitle>
+                        <FieldDescription>
+                          {playMode.description}
+                        </FieldDescription>
+                      </FieldContent>
+                      <RadioGroupItem className="peer" disabled={playMode.disabled} value={playMode.id}
+                                      id={playMode.id}/>
+                    </Field>
+                  </FieldLabel>
+                ))}
+              </RadioGroup>
+            </FieldSet>
+          </FieldGroup>
+          <Button size="lg" type="submit">Start game</Button>
+        </form>
 
         <div className="flex gap-3 mt-4">
-          <Button variant="ghost" className="flex-1 gap-2 bg-transparent">
+          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent">
             <BookOpen className="w-4 h-4"/>
             Game History
           </Button>
-          <Button variant="ghost" className="flex-1 gap-2 bg-transparent">
+          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent">
             <BarChart3 className="w-4 h-4"/>
             Leaderboard
           </Button>
@@ -76,29 +153,3 @@ function RouteComponent() {
     </div>
   </>
 }
-
-function PlayModeCard({
-                        icon,
-                        title,
-                        description,
-                        iconBg,
-                        iconColor,
-                      }: {
-  icon: React.ReactNode
-  title: string
-  description: string
-  iconBg: string
-  iconColor: string
-}) {
-  return (
-    <button
-      className="flex items-start gap-4 p-4 rounded-lg bg-card border hover:bg-accent transition-colors text-left group">
-      <div className={`${iconBg} ${iconColor} p-3 rounded-lg group-hover:scale-110 transition-transform`}>{icon}</div>
-      <div className="flex-1">
-        <h3 className="font-semibold text-lg mb-1">{title}</h3>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-    </button>
-  )
-}
-

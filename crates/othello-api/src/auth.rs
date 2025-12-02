@@ -202,7 +202,7 @@ pub async fn sign_in(
     headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // 6. Send JSON back with cookie set
-    (headers, Redirect::to(FRONTEND_URL)).into_response()
+    (headers, Redirect::to(&format!("{}/play", FRONTEND_URL))).into_response()
 }
 
 fn generate_auth_cookie(token: String) -> Cookie<'static> {
@@ -307,7 +307,7 @@ pub async fn sign_up(
     out_headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // Final redirect (login successful)
-    (out_headers, Redirect::to(FRONTEND_URL)).into_response()
+    (out_headers, Redirect::to(&format!("{}/play", FRONTEND_URL))).into_response()
 }
 
 pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {

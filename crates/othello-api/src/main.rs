@@ -4,7 +4,6 @@ mod auth;
 mod db;
 mod csrf;
 mod env_macro;
-
 use crate::auth::{authorise, get_me};
 use crate::csrf::{csrf_protect, init_csrf};
 use axum::http::HeaderValue;
@@ -12,8 +11,10 @@ use axum::middleware::{from_fn, from_fn_with_state};
 use axum::{routing::get, Router};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
+use axum::routing::post;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
+use crate::services::new_game;
 
 const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
 
@@ -33,6 +34,8 @@ async fn main() {
     let protected = Router::new()
         .route("/protected", get(|| async { "OK, Protected" }))
         .route("/user", get(get_me))
+        .route("/game/new", post(new_game))
+        .with_state(pool.clone())
         .layer(from_fn(csrf_protect))    // CSRF check (only POST, PUT, PATCH, DELETE)
         .layer(from_fn_with_state(pool.clone(), authorise));       // JWT check
 
