@@ -410,8 +410,8 @@ impl From<Account> for PublicAccount {
 
 pub async fn get_me(
     Extension(account): Extension<Account>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, StatusCode> {
     let public: PublicAccount = account.into();
-    Json(public)
+    Ok(Json(public))
 }
 

@@ -1,9 +1,9 @@
-import {createFileRoute} from "@tanstack/react-router"
+import {createFileRoute, Link} from "@tanstack/react-router"
 import Board from "@/components/game/board.tsx";
 import {BarChart3, BookOpen, Bot, MessageCircleWarningIcon, UserPlus, Users, Zap} from "lucide-react";
 import {Button} from "@/components/ui/button.tsx";
 import {Alert, AlertDescription, AlertTitle} from "@/components/ui/alert.tsx";
-import {type ComponentType, useEffect, useState} from "react";
+import {type ComponentType, type FormEvent, useState} from "react";
 import {
   Field,
   FieldContent,
@@ -14,7 +14,17 @@ import {
   FieldTitle
 } from "@/components/ui/field.tsx";
 import {RadioGroup, RadioGroupItem} from "@/components/ui/radio-group";
-import {Input} from "@/components/ui/input.tsx";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList, BreadcrumbPage,
+  BreadcrumbSeparator
+} from "@/components/ui/breadcrumb.tsx";
+import {SidebarTrigger} from "@/components/ui/sidebar.tsx";
+import {Separator} from "@/components/ui/separator.tsx";
+import {toast} from "sonner";
+import {Spinner} from "@/components/ui/spinner.tsx";
 
 export const Route = createFileRoute("/play/")({
   component: RouteComponent,
@@ -64,36 +74,65 @@ const playModes: PlayMode[] = [
 ]
 
 function RouteComponent() {
-  const [csrf, setCsrf] = useState("")
+  const [isLoading, setIsLoading] = useState(false);
+  const [gameMode, setGameMode] = useState("pass_and_play")
 
-  useEffect(() => {
-    const readCookie = () =>
-      document.cookie
-        .split("; ")
-        .find((x) => x.startsWith("csrf="))
-        ?.split("=")[1];
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setIsLoading(true);
 
-    let token = readCookie();
-
-    if (!token) {
-      fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/csrf/init`, {
-        method: "GET",
-        credentials: "include"
+    fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/game/new`, {
+      method: "POST",
+      credentials: "include",
+      body: JSON.stringify({
+        game_type: gameMode,
       })
-        .then(() => {
-          token = readCookie();
-          if (token) setCsrf(token);
-        })
-        .catch(console.error);
-    } else {
-      setCsrf(token);
-    }
-  }, []);
+    }).then((res) => {
+      if (res.status == 201) {
+        toast("created")
+      } else {
+        toast("error")
+      }
+      setIsLoading(false)
+    }).catch((err) => {
+      console.error(err)
+      setIsLoading(false)
+    })
+  }
+
 
   return <>
+    <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+      <div className="flex items-center gap-2 px-4">
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem className="hidden md:block">
+              <BreadcrumbLink asChild>
+                <Link to="/">Othello</Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="hidden md:block" />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Play</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
+    </header>
     <div className="flex flex-col 2xl:flex-row gap-6 p-4 w-full h-full">
       <div className="flex items-center justify-center flex-1">
-        <Board disabled/>
+        <Board disabled board={[
+          new Array(8).fill(0),
+          new Array(8).fill(0),
+          new Array(8).fill(0),
+          [0,0,0,2,1,0,0,0],
+          [0,0,0,1,2,0,0,0],
+          new Array(8).fill(0),
+          new Array(8).fill(0),
+          new Array(8).fill(0),
+        ]}/>
       </div>
 
       {/* Play Modes */}
@@ -105,7 +144,7 @@ function RouteComponent() {
           <h1 className="text-3xl font-bold">Play Othello</h1>
         </div>
 
-        <form className="flex flex-col gap-3" action={`${import.meta.env.VITE_PUBLIC_API_URL}/api/game/new`} method="POST">
+        <form className="flex flex-col gap-3" onSubmit={(e) => onSubmit(e)}>
           <Alert variant="default" className="border-0 text-yellow-900 bg-yellow-100">
             <MessageCircleWarningIcon/>
             <AlertTitle>Heads up!</AlertTitle>
@@ -113,12 +152,9 @@ function RouteComponent() {
               Othello is currently in alpha. Not all features work yet.
             </AlertDescription>
           </Alert>
-          <Field hidden>
-            <Input id="csrf" name="csrf" type="hidden" value={csrf} readOnly required/>
-          </Field>
           <FieldGroup>
             <FieldSet>
-              <RadioGroup defaultValue="pass_and_play" name="game_type">
+              <RadioGroup value={gameMode} onChange={(e: any) => setGameMode(e.target.value)} defaultValue="pass_and_play" name="game_type">
                 {playModes.map((playMode) => (
                   <FieldLabel htmlFor={playMode.id}>
                     <Field className="has-disabled:opacity-50 has-disabled:cursor-not-allowed" orientation="horizontal">
@@ -136,7 +172,9 @@ function RouteComponent() {
               </RadioGroup>
             </FieldSet>
           </FieldGroup>
-          <Button size="lg" type="submit">Start game</Button>
+          <Button size="lg" disabled={isLoading} type="submit">
+            {isLoading && <Spinner />} Start game
+          </Button>
         </form>
 
         <div className="flex gap-3 mt-4">

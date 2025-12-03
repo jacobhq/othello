@@ -112,7 +112,7 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
   const user = useLoaderData({ from: "/play" });
 
   return (
-    <SidebarComponent collapsible="icon" {...props}>
+    <SidebarComponent collapsible="offcanvas" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
