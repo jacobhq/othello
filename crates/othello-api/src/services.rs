@@ -5,8 +5,11 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{Extension, Json, response::IntoResponse};
 use othello::bitboard::BitBoard;
+use othello::othello_game::{OthelloGame, Color as OthelloColor};
 use serde::{Deserialize, Serialize};
-use sqlx::{Error, FromRow, PgPool};
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Error, FromRow, PgPool, Postgres, Type};
+use std::fmt::Display;
 use uuid::Uuid;
 
 const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
@@ -118,9 +121,80 @@ pub async fn new_game(
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Color {
+    Black,
+    White,
+}
+
+impl From<Color> for OthelloColor {
+    fn from(c: Color) -> Self {
+        match c {
+            Color::Black => OthelloColor::Black,
+            Color::White => OthelloColor::White,
+        }
+    }
+}
+
+impl From<OthelloColor> for Color {
+    fn from(c: OthelloColor) -> Self {
+        match c {
+            OthelloColor::Black => Color::Black,
+            OthelloColor::White => Color::White,
+        }
+    }
+}
+
+impl Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            Color::Black => String::from("black"),
+            Color::White => String::from("white"),
+        };
+        write!(f, "{}", str)
+    }
+}
+
+impl<'r> Decode<'r, sqlx::Postgres> for Color {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+
+        match s {
+            "black" => Ok(Color::Black),
+            "white" => Ok(Color::White),
+            other => Err(format!("invalid Color variant: {}", other).into()),
+        }
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for Color {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
+        let s = match self {
+            Color::Black => "black",
+            Color::White => "white",
+        };
+        <&str as Encode<Postgres>>::encode_by_ref(&s, buf)
+    }
+
+    fn size_hint(&self) -> usize {
+        let s = match self {
+            Color::Black => "black",
+            Color::White => "white",
+        };
+        <&str as Encode<Postgres>>::size_hint(&s)
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for Color {
+    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
 #[derive(Serialize, FromRow)]
-struct InPlayField {
-    current_turn: String,
+struct MinimalGameFromDb {
+    current_turn: Color,
     bitboard_white: Vec<u8>,
     bitboard_black: Vec<u8>,
 }
@@ -152,7 +226,7 @@ pub async fn get_in_play_game(
             Err(_) => return Err(StatusCode::NOT_FOUND),
         };
 
-    match sqlx::query_as::<sqlx::Postgres, InPlayField>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
+    match sqlx::query_as::<sqlx::Postgres, MinimalGameFromDb>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
         .bind(game_id.to_string())
         .bind(&player_id)
         .fetch_one(&pool)
@@ -162,7 +236,7 @@ pub async fn get_in_play_game(
             let b: [u8; 8] = row.bitboard_black.as_slice().try_into().unwrap();
 
             let response = InPlayResponse {
-                current_turn: row.current_turn,
+                current_turn: row.current_turn.to_string(),
                 bitboard_white: u64::from_le_bytes(w),
                 bitboard_black: u64::from_le_bytes(b),
             };
@@ -173,6 +247,72 @@ pub async fn get_in_play_game(
             Error::RowNotFound => Err(StatusCode::NOT_FOUND),
             _ => Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Move {
+    row: u8,
+    col: u8,
+    color: Color,
+}
+
+pub async fn set_in_play_game(
+    State(pool): State<PgPool>,
+    Extension(account): Extension<Account>,
+    Path(game_id): Path<String>,
+    Json(new_move): Json<Move>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let player_id =
+        match sqlx::query_as::<sqlx::Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
+            .bind(&account.id)
+            .fetch_one(&pool)
+            .await
+        {
+            Ok(player) => player.id,
+            Err(err) => {
+                return match err {
+                    Error::RowNotFound => Err(StatusCode::NOT_FOUND),
+                    _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                };
+            }
+        };
+
+    let game_from_db = match sqlx::query_as::<sqlx::Postgres, MinimalGameFromDb>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
+        .bind(game_id.to_string())
+        .bind(&player_id)
+        .fetch_one(&pool)
+        .await {
+        Ok(game) => game,
+        Err(err) => return match err {
+            Error::RowNotFound => Err(StatusCode::NOT_FOUND),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    };
+
+    let mut game = OthelloGame::new_with_state(
+        u64::from_le_bytes(game_from_db.bitboard_black.try_into().unwrap()),
+        u64::from_le_bytes(game_from_db.bitboard_white.try_into().unwrap()),
+        game_from_db.current_turn.into(),
+    );
+
+    if game.legal_moves(new_move.color.clone().into()).contains(&(new_move.row as usize, new_move.col as usize)) {
+        match game.play(new_move.row as usize, new_move.col as usize, new_move.color.into()) {
+            Ok(_) => match sqlx::query("UPDATE Game SET current_turn = $1, bitboard_black = $2, bitboard_white = $3 WHERE id = $4")
+                .bind::<&Color>(&game.current_turn.into())
+                .bind(game.black.slices())
+                .bind(game.white.slices())
+                .bind(&game_id)
+                .execute(&pool)
+                .await {
+                Ok(_) => Ok(StatusCode::CREATED),
+                Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+            Err(_) => Err(StatusCode::UNPROCESSABLE_ENTITY)
+        }
+    } else {
+        println!("{:?} {:?}", game.legal_moves(game.current_turn), game);
+        Err(StatusCode::UNPROCESSABLE_ENTITY)
     }
 }
 

@@ -1,4 +1,4 @@
-import {createFileRoute, Link, notFound} from '@tanstack/react-router'
+import {createFileRoute, Link, notFound, useParams} from '@tanstack/react-router'
 import Board from "@/components/game/board.tsx";
 import {
   Breadcrumb,
@@ -25,6 +25,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog";
+import {getCookie} from "@/lib/utils.ts";
 
 interface ApiGameResponse {
   bitboard_black: string,
@@ -79,6 +80,8 @@ function RouteComponent() {
       break;
   }
 
+  const { gameId } = useParams({ strict: false });
+
   const [game, setGame] = useState<WasmGame | null>(null);
   const [board, setBoard] = useState<(0 | 1 | 2)[][]>([]);
   const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
@@ -98,22 +101,44 @@ function RouteComponent() {
     setScore([...g.score()] as [number, number]);
   }
 
-  const handleClick = (i: number, j: number) => {
+  const handleClick = async (i: number, j: number) => {
+    if (!game) return;
+
     try {
-      if (!game) {
-        return
+      const res = await fetch(
+        `${import.meta.env.VITE_PUBLIC_API_URL}/api/game/${gameId}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Csrf-Token": getCookie("csrf") ?? ""
+          },
+          body: JSON.stringify({
+            row: i,
+            col: j,
+            color: game.current_player() == 1 && "black" || game.current_player() == 2 && "white",
+          }),
+        }
+      );
+
+      if (res.status !== 201) {
+        // backend didn't allow the move
+        toast.error("Invalid move");
+        return;
       }
 
-      game.play_turn(i, j, game.current_player())
+      // backend validated move → apply locally
+      game.play_turn(i, j, game.current_player());
       const newBoard = game.board();
-      setBoard(newBoard)
-      setScore([...game.score()] as [number, number])
-      setCurrentPlayer(game.current_player() as 2 | 1)
-      setGameOver(game.game_over())
+      setBoard(newBoard);
+      setScore([...game.score()] as [number, number]);
+      setCurrentPlayer(game.current_player() as 2 | 1);
+      setGameOver(game.game_over());
     } catch (e) {
-      toast.error(e as string)
+      toast.error(e as string);
     }
-  }
+  };
 
   return <>
     <AlertDialog open={gameOver}>

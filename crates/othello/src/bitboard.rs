@@ -34,7 +34,7 @@ impl BitBoard {
     }
 
     /// Converts the board to a slice of u8s.
-    pub fn slices(&mut self) -> [u8; 8] {
+    pub fn slices(&self) -> [u8; 8] {
         self.0.to_le_bytes()
     }
 }
