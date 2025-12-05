@@ -1,4 +1,4 @@
-import {createFileRoute, Link} from '@tanstack/react-router'
+import {createFileRoute, Link, notFound} from '@tanstack/react-router'
 import Board from "@/components/game/board.tsx";
 import {
   Breadcrumb,
@@ -26,11 +26,59 @@ import {
   AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 
+interface ApiGameResponse {
+  bitboard_black: string,
+  bitboard_white: string,
+  current_turn: string
+}
+
+interface ApiGame {
+  bitboard_black: bigint,
+  bitboard_white: bigint,
+  current_turn: string
+}
+
 export const Route = createFileRoute('/play/$gameId')({
   component: RouteComponent,
+  loader: async ({params}) => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/game/${params.gameId}`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        // No game exists
+        throw notFound()
+      }
+
+      let data: ApiGameResponse = await res.json();
+
+      return {
+        bitboard_black: BigInt(data.bitboard_black),
+        bitboard_white: BigInt(data.bitboard_white),
+        current_turn: data.current_turn,
+      } satisfies ApiGame;
+    } catch (err) {
+      throw notFound()
+    }
+  }
+
 })
 
 function RouteComponent() {
+  const initial_state = Route.useLoaderData();
+  let initial_turn = 0;
+
+  switch (initial_state.current_turn) {
+    case "black":
+      initial_turn = 1;
+      break;
+    case "white":
+      initial_turn = 2;
+      break;
+  }
+
   const [game, setGame] = useState<WasmGame | null>(null);
   const [board, setBoard] = useState<(0 | 1 | 2)[][]>([]);
   const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
@@ -42,8 +90,8 @@ function RouteComponent() {
     initialiseGame()
   }, []);
 
+  const g = WasmGame.new_from_state(initial_state.bitboard_black, initial_state.bitboard_white, initial_turn);
   const initialiseGame = () => {
-    const g = new WasmGame();
     setGame(g);
     setBoard(g.board());
     setCurrentPlayer(g.current_player() as 1 | 2);
@@ -128,7 +176,8 @@ function RouteComponent() {
       </div>
       <div className="hidden sm:flex flex-1 justify-end items-center gap-2 px-4">
         <ButtonGroup>
-          <Button disabled={gameOver} variant="ghost">{currentPlayer == 1 && "Black's" || currentPlayer == 2 && "White's"} turn</Button>
+          <Button disabled={gameOver}
+                  variant="ghost">{currentPlayer == 1 && "Black's" || currentPlayer == 2 && "White's"} turn</Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button disabled={gameOver} variant="ghost">
@@ -152,7 +201,7 @@ function RouteComponent() {
     </header>
     <div className="flex flex-col 2xl:flex-row gap-6 p-0 w-full h-full">
       <div className="flex items-center justify-center flex-1">
-        <Board board={board} handleClick={handleClick} />
+        <Board board={board} handleClick={handleClick}/>
       </div>
     </div>
   </>

@@ -70,6 +70,15 @@ impl OthelloGame {
         board
     }
 
+    /// Creates a new Othello board from a black and a white bitboard, and sets the current turn.
+    pub fn new_with_state(black: u64, white: u64, current_turn: Color) -> Self {
+        OthelloGame {
+            black: BitBoard(black),
+            white: BitBoard(white),
+            current_turn,
+        }
+    }
+
     /// Returns the color at a given square, if any.
     pub fn get(&self, row: usize, col: usize) -> Option<Color> {
         if self.black.get(row, col) {

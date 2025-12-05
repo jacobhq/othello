@@ -3,10 +3,10 @@ use crate::env_or_dotenv;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
-use axum::{response::IntoResponse, Extension, Json};
+use axum::{Extension, Json, response::IntoResponse};
 use othello::bitboard::BitBoard;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{Error, FromRow, PgPool};
 use uuid::Uuid;
 
 const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
@@ -132,14 +132,29 @@ pub struct InPlayResponse {
     bitboard_black: u64,
 }
 
+#[derive(FromRow)]
+struct Player {
+    id: String,
+}
+
 pub async fn get_in_play_game(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
     Path(game_id): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let player_id =
+        match sqlx::query_as::<sqlx::Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
+            .bind(&account.id)
+            .fetch_one(&pool)
+            .await
+        {
+            Ok(player) => player.id,
+            Err(_) => return Err(StatusCode::NOT_FOUND),
+        };
+
     match sqlx::query_as::<sqlx::Postgres, InPlayField>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
         .bind(game_id.to_string())
-        .bind(account.id)
+        .bind(&player_id)
         .fetch_one(&pool)
         .await {
         Ok(row) => {
@@ -154,7 +169,10 @@ pub async fn get_in_play_game(
 
             Ok(Json(response))
         }
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR)
+        Err(err) => match err {
+            Error::RowNotFound => Err(StatusCode::NOT_FOUND),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 
