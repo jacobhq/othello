@@ -41,7 +41,7 @@ pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
 
 fn extract_csrf_header(headers: &HeaderMap) -> Option<String> {
     headers
-        .get("x-csrf-token")
+        .get("X-Csrf-Token")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string())
 }

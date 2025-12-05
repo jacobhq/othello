@@ -2,13 +2,12 @@ use crate::auth::Account;
 use crate::env_or_dotenv;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::Redirect;
+use axum::response::Response;
 use axum::{response::IntoResponse, Extension, Json};
+use othello::bitboard::BitBoard;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
-use othello::bitboard::BitBoard;
-use othello::othello_game::Color;
 
 const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
 
@@ -39,6 +38,22 @@ pub struct GameInfo {
     pub game_type: GameType,
 }
 
+#[derive(FromRow, Debug)]
+struct PlayerResult {
+    id: String,
+}
+
+#[derive(Serialize)]
+pub struct NewGameResponse {
+    id: String,
+}
+
+impl IntoResponse for NewGameResponse {
+    fn into_response(self) -> Response {
+        (StatusCode::CREATED, Json(self)).into_response()
+    }
+}
+
 pub async fn new_game(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
@@ -46,7 +61,33 @@ pub async fn new_game(
 ) -> Result<impl IntoResponse, StatusCode> {
     match game_info.game_type {
         GameType::PassAndPlay => {
-            let id = Uuid::new_v4().to_string();
+            let game_id = Uuid::new_v4().to_string();
+            let new_player_id = Uuid::new_v4().to_string();
+
+            let new_player_result = sqlx::query(
+                "INSERT INTO Player (id, type, user_id) VALUES ($1, 'user', $2) ON CONFLICT DO NOTHING"
+            )
+                .bind(&new_player_id)
+                .bind(&account.id)
+                .execute(&pool)
+                .await;
+
+            if new_player_result.is_err() {
+                println!("{:?}", new_player_result);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+
+            let player_result = sqlx::query_as::<sqlx::Postgres, PlayerResult>(
+                "SELECT (id) FROM Player WHERE user_id = $1",
+            )
+            .bind(&account.id)
+            .fetch_one(&pool)
+            .await;
+
+            if player_result.is_err() {
+                println!("{:?}", player_result);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
 
             let mut black_board = BitBoard(0);
             let mut white_board = BitBoard(0);
@@ -57,20 +98,21 @@ pub async fn new_game(
             white_board.set(4, 4);
 
             let insert_result = sqlx::query(
-                "INSERT INTO Game (id, player_one_id, type, bitboard_black, bitboard_white) VALUES ($1, $2, 'user_anon', $3, $4)",
+                "INSERT INTO Game (id, player_one_id, type, bitboard_black, bitboard_white) VALUES ($1, $2, 'pass_and_play', $3, $4)",
             )
-                .bind(&id)
-                .bind(&account.id)
+                .bind(&game_id)
+                .bind(&player_result.unwrap().id)
                 .bind(black_board.slices())
                 .bind(white_board.slices())
                 .execute(&pool)
                 .await;
 
             if insert_result.is_err() {
+                println!("{:?}", insert_result);
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
 
-            Ok(StatusCode::CREATED)
+            Ok(NewGameResponse { id: game_id })
         }
         _ => Err(StatusCode::NOT_IMPLEMENTED),
     }
@@ -106,8 +148,8 @@ pub async fn get_in_play_game(
 
             let response = InPlayResponse {
                 current_turn: row.current_turn,
-                bitboard_white: u64::from_be_bytes(w),
-                bitboard_black: u64::from_be_bytes(b),
+                bitboard_white: u64::from_le_bytes(w),
+                bitboard_black: u64::from_le_bytes(b),
             };
 
             Ok(Json(response))
@@ -124,8 +166,8 @@ pub async fn get_game(
     let game_result = sqlx::query(
         "SELECT * FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)",
     )
-        .bind(game_id.to_string())
-        .bind(account.id)
-        .execute(&pool)
-        .await;
+    .bind(game_id.to_string())
+    .bind(account.id)
+    .execute(&pool)
+    .await;
 }

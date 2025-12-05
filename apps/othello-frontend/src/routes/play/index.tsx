@@ -1,4 +1,4 @@
-import {createFileRoute, Link} from "@tanstack/react-router"
+import {createFileRoute, Link, useNavigate} from "@tanstack/react-router"
 import Board from "@/components/game/board.tsx";
 import {BarChart3, BookOpen, Bot, MessageCircleWarningIcon, UserPlus, Users, Zap} from "lucide-react";
 import {Button} from "@/components/ui/button.tsx";
@@ -25,6 +25,7 @@ import {SidebarTrigger} from "@/components/ui/sidebar.tsx";
 import {Separator} from "@/components/ui/separator.tsx";
 import {toast} from "sonner";
 import {Spinner} from "@/components/ui/spinner.tsx";
+import {getCookie} from "@/lib/utils.ts";
 
 export const Route = createFileRoute("/play/")({
   component: RouteComponent,
@@ -73,7 +74,13 @@ const playModes: PlayMode[] = [
   }
 ]
 
+interface CreationResponse {
+  id: string
+}
+
 function RouteComponent() {
+  const navigate = useNavigate({from: "/play"})
+
   const [isLoading, setIsLoading] = useState(false);
   const [gameMode, setGameMode] = useState("pass_and_play")
 
@@ -86,12 +93,20 @@ function RouteComponent() {
       credentials: "include",
       body: JSON.stringify({
         game_type: gameMode,
-      })
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        "X-Csrf-Token": getCookie("csrf") ?? ""
+      }
     }).then((res) => {
       if (res.status == 201) {
-        toast("created")
+        toast.success("Game created successfully")
+
+        res.json().then((data: CreationResponse) => {
+          navigate({to: "/play/$gameId", params: { gameId: data.id }})
+        })
       } else {
-        toast("error")
+        toast.error("An error occurred, please try again")
       }
       setIsLoading(false)
     }).catch((err) => {
@@ -156,7 +171,7 @@ function RouteComponent() {
             <FieldSet>
               <RadioGroup value={gameMode} onChange={(e: any) => setGameMode(e.target.value)} defaultValue="pass_and_play" name="game_type">
                 {playModes.map((playMode) => (
-                  <FieldLabel htmlFor={playMode.id}>
+                  <FieldLabel htmlFor={playMode.id} key={playMode.id}>
                     <Field className="has-disabled:opacity-50 has-disabled:cursor-not-allowed" orientation="horizontal">
                       <FieldContent>
                         <FieldTitle className="font-bold text-lg">{playMode.title}</FieldTitle>

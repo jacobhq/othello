@@ -27,7 +27,7 @@ async fn main() {
     let cors = CorsLayer::new()
         .allow_origin(FRONTEND_URL.parse::<HeaderValue>().unwrap())
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS])
-        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION])
+        .allow_headers([axum::http::header::CONTENT_TYPE, axum::http::header::AUTHORIZATION, axum::http::HeaderName::from_static("x-csrf-token")])
         .allow_credentials(true);
 
     // Protected Routes
