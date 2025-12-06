@@ -31,8 +31,10 @@ export const columns: ColumnDef<Game>[] = [
     accessorKey: "timestamp",
     header: "Created",
     cell: ({cell}) => {
+      // @ts-expect-error: We know this type from Rust
       const value: string = cell.getValue()
       const date = new Date(value)
+      // @ts-expect-error: We can subtract dates
       const seconds = Math.floor((new Date() - date) / 1000);
 
       let interval = seconds / 31536000;
@@ -63,6 +65,7 @@ export const columns: ColumnDef<Game>[] = [
     header: "Score",
     accessorFn: (row) => [row.black_score, row.white_score],
     cell: ({cell}) => {
+      // @ts-expect-error: We know this type from Rust
       const value: [number, number] = cell.getValue()
       return <div>
         <div className="flex flex-row gap-4">
