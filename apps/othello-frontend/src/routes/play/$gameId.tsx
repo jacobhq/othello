@@ -193,7 +193,7 @@ function RouteComponent() {
               <span className="font-semibold">{score[0]}</span>
             </div>
             <div className="flex flex-row gap-1 items-center">
-              <div className="h-4 w-4 border rounded-full"></div>
+              <div className="h-4 w-4 bg-white border rounded-full"></div>
               <span className="font-semibold">{score[1]}</span>
             </div>
           </div>

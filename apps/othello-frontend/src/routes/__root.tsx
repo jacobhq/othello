@@ -1,7 +1,8 @@
-import { Outlet, createRootRoute } from "@tanstack/react-router"
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
+import {Outlet, createRootRoute} from "@tanstack/react-router"
+import {TanStackRouterDevtools} from "@tanstack/react-router-devtools"
 import {Toaster} from "@/components/ui/sonner.tsx";
 import {PostHogProvider} from "posthog-js/react";
+import {ThemeProvider} from "@/components/theme-provider.tsx";
 
 const options = {
   api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
@@ -15,11 +16,13 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <>
-      <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
-        <Toaster/>
-        <Outlet />
-      </PostHogProvider>
-      <TanStackRouterDevtools position="bottom-right" />
+      <ThemeProvider defaultTheme="system" storageKey="ui-theme">
+        <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
+          <Toaster/>
+          <Outlet/>
+        </PostHogProvider>
+      </ThemeProvider>
+      <TanStackRouterDevtools position="bottom-right"/>
     </>
   )
 }
