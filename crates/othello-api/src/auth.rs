@@ -415,3 +415,21 @@ pub async fn get_me(
     Ok(Json(public))
 }
 
+pub async fn logout() -> impl IntoResponse {
+    // Build a cookie that expires immediately to remove it
+    let cookie = Cookie::build("auth_token")
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::None)
+        .max_age(time::Duration::seconds(0)) // expires immediately
+        .expires(OffsetDateTime::now_utc() - time::Duration::days(1)) // past date
+        .build();
+
+    let mut headers = HeaderMap::new();
+    headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
+
+    // Redirect back to frontend home/login page
+    (headers, Redirect::to(FRONTEND_URL)).into_response()
+}
+

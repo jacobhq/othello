@@ -11,6 +11,10 @@ const options = {
 
 export const Route = createRootRoute({
   component: RootComponent,
+  beforeLoad: async () => await fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/csrf/init`, {
+    method: "GET",
+    credentials: "include"
+  }).catch(console.error)
 })
 
 function RootComponent() {

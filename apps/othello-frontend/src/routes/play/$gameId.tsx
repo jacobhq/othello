@@ -43,7 +43,7 @@ export const Route = createFileRoute('/play/$gameId')({
   component: RouteComponent,
   loader: async ({params}) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/game/${params.gameId}`, {
+      const res = await fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/games/${params.gameId}`, {
         method: "GET",
         credentials: "include",
       });
@@ -106,7 +106,7 @@ function RouteComponent() {
 
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_PUBLIC_API_URL}/api/game/${gameId}`,
+        `${import.meta.env.VITE_PUBLIC_API_URL}/api/games/${gameId}`,
         {
           method: "POST",
           credentials: "include",
@@ -190,11 +190,11 @@ function RouteComponent() {
           <div className="flex flex-row gap-4">
             <div className="flex flex-row gap-1 items-center">
               <div className="h-4 w-4 bg-black border rounded-full"></div>
-              <span className="font-semibold">{score[0]}</span>
+              <span className="font-semibold">{score[1]}</span>
             </div>
             <div className="flex flex-row gap-1 items-center">
               <div className="h-4 w-4 bg-white border rounded-full"></div>
-              <span className="font-semibold">{score[1]}</span>
+              <span className="font-semibold">{score[0]}</span>
             </div>
           </div>
         </Button>

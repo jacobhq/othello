@@ -16,100 +16,92 @@ import {
 import {Badge} from "@/components/ui/badge";
 import {useLoaderData} from "@tanstack/react-router";
 
-// This is sample data.
-const data = {
-  user: {
-    name: "jhqcat",
-    email: "me@jhqcat.com",
-    avatar: "/avatars/shadcn.jpg",
+const sidebarLinks = [
+  {
+    title: "Play",
+    url: "#",
+    icon: PlayCircle,
+    isActive: true,
+    items: [
+      {
+        title: "New Game",
+        url: "/play",
+      },
+      {
+        title: "Resume Game",
+        url: "/play/resume-game",
+      },
+      {
+        title: "History",
+        url: "/play/history",
+      },
+    ],
   },
-  navMain: [
-    {
-      title: "Play",
-      url: "#",
-      icon: PlayCircle,
-      isActive: true,
-      items: [
-        {
-          title: "New Game",
-          url: "#",
-        },
-        {
-          title: "Continue",
-          url: "#",
-        },
-        {
-          title: "Quick Match",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Models",
-      url: "#",
-      icon: Bot,
-      items: [
-        {
-          title: "Genesis",
-          url: "#",
-        },
-        {
-          title: "Explorer",
-          url: "#",
-        },
-        {
-          title: "Quantum",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Game Review",
-      url: "#",
-      icon: Star,
-      items: [
-        {
-          title: "Recent Games",
-          url: "#",
-        },
-        {
-          title: "Analysis",
-          url: "#",
-        },
-        {
-          title: "Statistics",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Settings",
-      url: "#",
-      icon: Settings2,
-      items: [
-        {
-          title: "General",
-          url: "#",
-        },
-        {
-          title: "Team",
-          url: "#",
-        },
-        {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
-        },
-      ],
-    },
-  ],
-}
+  {
+    title: "Models",
+    url: "#",
+    icon: Bot,
+    items: [
+      {
+        title: "Genesis",
+        url: "#",
+      },
+      {
+        title: "Explorer",
+        url: "#",
+      },
+      {
+        title: "Quantum",
+        url: "#",
+      },
+    ],
+  },
+  {
+    title: "Game Review",
+    url: "#",
+    icon: Star,
+    items: [
+      {
+        title: "Recent Games",
+        url: "#",
+      },
+      {
+        title: "Analysis",
+        url: "#",
+      },
+      {
+        title: "Statistics",
+        url: "#",
+      },
+    ],
+  },
+  {
+    title: "Settings",
+    url: "#",
+    icon: Settings2,
+    items: [
+      {
+        title: "General",
+        url: "#",
+      },
+      {
+        title: "Team",
+        url: "#",
+      },
+      {
+        title: "Billing",
+        url: "#",
+      },
+      {
+        title: "Limits",
+        url: "#",
+      },
+    ],
+  },
+]
 
 export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent>) {
-  const user = useLoaderData({ from: "/play" });
+  const user = useLoaderData({from: "/play"});
 
   return (
     <SidebarComponent collapsible="offcanvas" {...props}>
@@ -130,7 +122,7 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarNavigation items={data.navMain}/>
+        <SidebarNavigation items={sidebarLinks}/>
       </SidebarContent>
       <SidebarFooter>
         <UserMenu user={user}/>

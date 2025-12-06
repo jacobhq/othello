@@ -101,9 +101,11 @@ export function UserMenu({
               </DropdownMenuSub>
             </DropdownMenuGroup>
             <DropdownMenuSeparator/>
-            <DropdownMenuItem>
-              <LogOut/>
-              Log out
+            <DropdownMenuItem asChild>
+              <a href={`${import.meta.env.VITE_PUBLIC_API_URL}/auth/logout`}>
+                <LogOut/>
+                Log out
+              </a>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

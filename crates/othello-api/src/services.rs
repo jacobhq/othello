@@ -3,9 +3,10 @@ use crate::env_or_dotenv;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
-use axum::{Extension, Json, response::IntoResponse};
+use axum::{response::IntoResponse, Extension, Json};
+use chrono::NaiveDateTime;
 use othello::bitboard::BitBoard;
-use othello::othello_game::{OthelloGame, Color as OthelloColor};
+use othello::othello_game::{Color as OthelloColor, OthelloGame};
 use serde::{Deserialize, Serialize};
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Error, FromRow, PgPool, Postgres, Type};
@@ -83,9 +84,9 @@ pub async fn new_game(
             let player_result = sqlx::query_as::<sqlx::Postgres, PlayerResult>(
                 "SELECT (id) FROM Player WHERE user_id = $1",
             )
-            .bind(&account.id)
-            .fetch_one(&pool)
-            .await;
+                .bind(&account.id)
+                .fetch_one(&pool)
+                .await;
 
             if player_result.is_err() {
                 println!("{:?}", player_result);
@@ -316,16 +317,105 @@ pub async fn set_in_play_game(
     }
 }
 
-pub async fn get_game(
+
+#[derive(FromRow)]
+struct GameRow {
+    id: String,
+    timestamp: NaiveDateTime,
+    #[sqlx(rename = "type")]
+    game_type: String,
+    status: String,
+    bitboard_white: Vec<u8>,
+    bitboard_black: Vec<u8>,
+    current_turn: Color,
+    player_one_id: String,
+    player_one_color: Color,
+    player_two_id: Option<String>,
+    player_two_color: Color,
+}
+
+#[derive(Serialize)]
+struct GameResponse {
+    id: String,
+    timestamp: NaiveDateTime,
+    #[serde(rename = "type")]
+    game_type: String,
+    status: String,
+    bitboard_white: u64,
+    bitboard_black: u64,
+    current_turn: Color,
+    player_one_color: Color,
+    player_two_color: Color,
+    current_user_player: u8,
+    white_score: u8,
+    black_score: u8,
+}
+
+pub async fn get_all_games(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
-    Path(game_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let game_result = sqlx::query(
-        "SELECT * FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)",
+    let player_id =
+        match sqlx::query_as::<sqlx::Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
+            .bind(&account.id)
+            .fetch_one(&pool)
+            .await
+        {
+            Ok(player) => player.id,
+            Err(err) => {
+                return match err {
+                    Error::RowNotFound => Err(StatusCode::NOT_FOUND),
+                    _ => {
+                        println!("err");
+                        Err(StatusCode::INTERNAL_SERVER_ERROR)
+                    },
+                };
+            }
+        };
+
+    let games: Vec<GameResponse> = match sqlx::query_as::<sqlx::Postgres, GameRow>(
+        "SELECT id, timestamp, type, status, bitboard_white, bitboard_black, player_one_id, player_one_color, player_two_id, player_two_color, current_turn FROM Game WHERE (player_one_id = $1 OR player_two_id = $1)",
     )
-    .bind(game_id.to_string())
-    .bind(account.id)
-    .execute(&pool)
-    .await;
+        .bind(&player_id)
+        .fetch_all(&pool)
+        .await {
+        Ok(games) => games.into_iter().map(|game| {
+            let othello_game = OthelloGame::new_with_state(
+                u64::from_le_bytes(game.bitboard_black.try_into().unwrap()),
+                u64::from_le_bytes(game.bitboard_white.try_into().unwrap()),
+                game.current_turn.clone().into(),
+            );
+
+            GameResponse {
+                id: game.id,
+                timestamp: game.timestamp,
+                game_type: game.game_type,
+                status: game.status,
+                current_turn: game.current_turn,
+                player_one_color: game.player_one_color,
+                player_two_color: game.player_two_color,
+                bitboard_white: othello_game.white.0,
+                bitboard_black: othello_game.black.0,
+                current_user_player: if player_id == game.player_one_id {
+                    1
+                } else if player_id == game.player_two_id.unwrap_or("".to_string()) {
+                    2
+                } else {
+                    0
+                },
+                // It will always be fine to truncate the score from u32 to u8 here, because the score cannot be higher than 64, and max value of u8 is 255
+                white_score: othello_game.score().0 as u8,
+                black_score: othello_game.score().1 as u8,
+            }
+        }).collect(),
+        Err(err) => return match err {
+            Error::RowNotFound => Err(StatusCode::NOT_FOUND),
+            err => {
+                println!("{err:?}");
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            },
+        }
+    };
+
+    Ok(Json(games))
 }

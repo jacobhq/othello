@@ -36,7 +36,7 @@ pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
         return jar.add(cookie).into_response();
     }
 
-    "no".into_response()
+    StatusCode::NO_CONTENT.into_response()
 }
 
 fn extract_csrf_header(headers: &HeaderMap) -> Option<String> {

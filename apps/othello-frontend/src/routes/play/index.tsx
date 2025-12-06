@@ -1,6 +1,6 @@
 import {createFileRoute, Link, useNavigate} from "@tanstack/react-router"
 import Board from "@/components/game/board.tsx";
-import {BarChart3, BookOpen, Bot, MessageCircleWarningIcon, UserPlus, Users, Zap} from "lucide-react";
+import {BookOpen, Bot, MessageCircleWarningIcon, PlayCircle, UserPlus, Users, Zap} from "lucide-react";
 import {Button} from "@/components/ui/button.tsx";
 import {Alert, AlertDescription, AlertTitle} from "@/components/ui/alert.tsx";
 import {type ComponentType, type FormEvent, useState} from "react";
@@ -88,7 +88,7 @@ function RouteComponent() {
     e.preventDefault()
     setIsLoading(true);
 
-    fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/game/new`, {
+    fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/games/new`, {
       method: "POST",
       credentials: "include",
       body: JSON.stringify({
@@ -103,7 +103,7 @@ function RouteComponent() {
         toast.success("Game created successfully")
 
         res.json().then((data: CreationResponse) => {
-          navigate({to: "/play/$gameId", params: { gameId: data.id }})
+          navigate({to: "/play/$gameId", params: {gameId: data.id}})
         })
       } else {
         toast.error("An error occurred, please try again")
@@ -117,10 +117,11 @@ function RouteComponent() {
 
 
   return <>
-    <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+    <header
+      className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
       <div className="flex items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1" />
-        <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
+        <SidebarTrigger className="-ml-1"/>
+        <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4"/>
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem className="hidden md:block">
@@ -128,7 +129,7 @@ function RouteComponent() {
                 <Link to="/">Othello</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="hidden md:block" />
+            <BreadcrumbSeparator className="hidden md:block"/>
             <BreadcrumbItem>
               <BreadcrumbPage>Play</BreadcrumbPage>
             </BreadcrumbItem>
@@ -142,8 +143,8 @@ function RouteComponent() {
           new Array(8).fill(0),
           new Array(8).fill(0),
           new Array(8).fill(0),
-          [0,0,0,2,1,0,0,0],
-          [0,0,0,1,2,0,0,0],
+          [0, 0, 0, 2, 1, 0, 0, 0],
+          [0, 0, 0, 1, 2, 0, 0, 0],
           new Array(8).fill(0),
           new Array(8).fill(0),
           new Array(8).fill(0),
@@ -169,7 +170,8 @@ function RouteComponent() {
           </Alert>
           <FieldGroup>
             <FieldSet>
-              <RadioGroup value={gameMode} onChange={(e: any) => setGameMode(e.target.value)} defaultValue="pass_and_play" name="game_type">
+              <RadioGroup value={gameMode} onChange={(e: any) => setGameMode(e.target.value)}
+                          defaultValue="pass_and_play" name="game_type">
                 {playModes.map((playMode) => (
                   <FieldLabel htmlFor={playMode.id} key={playMode.id}>
                     <Field className="has-disabled:opacity-50 has-disabled:cursor-not-allowed" orientation="horizontal">
@@ -188,18 +190,22 @@ function RouteComponent() {
             </FieldSet>
           </FieldGroup>
           <Button size="lg" disabled={isLoading} type="submit">
-            {isLoading && <Spinner />} Start game
+            {isLoading && <Spinner/>} Start game
           </Button>
         </form>
 
         <div className="flex gap-3 mt-4">
-          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent">
-            <BookOpen className="w-4 h-4"/>
-            Game History
+          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent" asChild>
+            <Link to="/play/resume-game">
+              <PlayCircle className="w-4 h-4"/>
+              Resume game
+            </Link>
           </Button>
-          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent">
-            <BarChart3 className="w-4 h-4"/>
-            Leaderboard
+          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent" asChild>
+            <Link to="/play/history">
+              <BookOpen className="w-4 h-4"/>
+              Game history
+            </Link>
           </Button>
         </div>
       </div>

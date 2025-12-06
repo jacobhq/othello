@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PlayRouteRouteImport } from './routes/play/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PlayIndexRouteImport } from './routes/play/index'
+import { Route as PlayResumeGameRouteImport } from './routes/play/resume-game'
+import { Route as PlayHistoryRouteImport } from './routes/play/history'
 import { Route as PlayGameIdRouteImport } from './routes/play/$gameId'
 import { Route as AuthSignupRouteImport } from './routes/auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
@@ -29,6 +31,16 @@ const IndexRoute = IndexRouteImport.update({
 const PlayIndexRoute = PlayIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => PlayRouteRoute,
+} as any)
+const PlayResumeGameRoute = PlayResumeGameRouteImport.update({
+  id: '/resume-game',
+  path: '/resume-game',
+  getParentRoute: () => PlayRouteRoute,
+} as any)
+const PlayHistoryRoute = PlayHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
   getParentRoute: () => PlayRouteRoute,
 } as any)
 const PlayGameIdRoute = PlayGameIdRouteImport.update({
@@ -53,6 +65,8 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
   '/play/$gameId': typeof PlayGameIdRoute
+  '/play/history': typeof PlayHistoryRoute
+  '/play/resume-game': typeof PlayResumeGameRoute
   '/play/': typeof PlayIndexRoute
 }
 export interface FileRoutesByTo {
@@ -60,6 +74,8 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
   '/play/$gameId': typeof PlayGameIdRoute
+  '/play/history': typeof PlayHistoryRoute
+  '/play/resume-game': typeof PlayResumeGameRoute
   '/play': typeof PlayIndexRoute
 }
 export interface FileRoutesById {
@@ -69,6 +85,8 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
   '/play/$gameId': typeof PlayGameIdRoute
+  '/play/history': typeof PlayHistoryRoute
+  '/play/resume-game': typeof PlayResumeGameRoute
   '/play/': typeof PlayIndexRoute
 }
 export interface FileRouteTypes {
@@ -79,9 +97,18 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/signup'
     | '/play/$gameId'
+    | '/play/history'
+    | '/play/resume-game'
     | '/play/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth/login' | '/auth/signup' | '/play/$gameId' | '/play'
+  to:
+    | '/'
+    | '/auth/login'
+    | '/auth/signup'
+    | '/play/$gameId'
+    | '/play/history'
+    | '/play/resume-game'
+    | '/play'
   id:
     | '__root__'
     | '/'
@@ -89,6 +116,8 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/signup'
     | '/play/$gameId'
+    | '/play/history'
+    | '/play/resume-game'
     | '/play/'
   fileRoutesById: FileRoutesById
 }
@@ -122,6 +151,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayIndexRouteImport
       parentRoute: typeof PlayRouteRoute
     }
+    '/play/resume-game': {
+      id: '/play/resume-game'
+      path: '/resume-game'
+      fullPath: '/play/resume-game'
+      preLoaderRoute: typeof PlayResumeGameRouteImport
+      parentRoute: typeof PlayRouteRoute
+    }
+    '/play/history': {
+      id: '/play/history'
+      path: '/history'
+      fullPath: '/play/history'
+      preLoaderRoute: typeof PlayHistoryRouteImport
+      parentRoute: typeof PlayRouteRoute
+    }
     '/play/$gameId': {
       id: '/play/$gameId'
       path: '/$gameId'
@@ -148,11 +191,15 @@ declare module '@tanstack/react-router' {
 
 interface PlayRouteRouteChildren {
   PlayGameIdRoute: typeof PlayGameIdRoute
+  PlayHistoryRoute: typeof PlayHistoryRoute
+  PlayResumeGameRoute: typeof PlayResumeGameRoute
   PlayIndexRoute: typeof PlayIndexRoute
 }
 
 const PlayRouteRouteChildren: PlayRouteRouteChildren = {
   PlayGameIdRoute: PlayGameIdRoute,
+  PlayHistoryRoute: PlayHistoryRoute,
+  PlayResumeGameRoute: PlayResumeGameRoute,
   PlayIndexRoute: PlayIndexRoute,
 }
 
