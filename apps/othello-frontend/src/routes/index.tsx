@@ -1,5 +1,5 @@
 import Hero from "@/components/marketing/hero";
-import Board from "@/components/game/board.tsx";
+import DemoBoard from "@/components/game/demo-board.tsx";
 import {createFileRoute} from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
@@ -12,7 +12,7 @@ function Index() {
     <div className="p-8">
       <Hero />
       <div>
-        <Board />
+        <DemoBoard />
       </div>
     </div>
   );

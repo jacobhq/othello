@@ -9,14 +9,44 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PlayRouteRouteImport } from './routes/play/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PlayIndexRouteImport } from './routes/play/index'
+import { Route as PlayResumeGameRouteImport } from './routes/play/resume-game'
+import { Route as PlayHistoryRouteImport } from './routes/play/history'
+import { Route as PlayGameIdRouteImport } from './routes/play/$gameId'
 import { Route as AuthSignupRouteImport } from './routes/auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 
+const PlayRouteRoute = PlayRouteRouteImport.update({
+  id: '/play',
+  path: '/play',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const PlayIndexRoute = PlayIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PlayRouteRoute,
+} as any)
+const PlayResumeGameRoute = PlayResumeGameRouteImport.update({
+  id: '/resume-game',
+  path: '/resume-game',
+  getParentRoute: () => PlayRouteRoute,
+} as any)
+const PlayHistoryRoute = PlayHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => PlayRouteRoute,
+} as any)
+const PlayGameIdRoute = PlayGameIdRouteImport.update({
+  id: '/$gameId',
+  path: '/$gameId',
+  getParentRoute: () => PlayRouteRoute,
 } as any)
 const AuthSignupRoute = AuthSignupRouteImport.update({
   id: '/auth/signup',
@@ -31,42 +61,116 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/play': typeof PlayRouteRouteWithChildren
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
+  '/play/$gameId': typeof PlayGameIdRoute
+  '/play/history': typeof PlayHistoryRoute
+  '/play/resume-game': typeof PlayResumeGameRoute
+  '/play/': typeof PlayIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
+  '/play/$gameId': typeof PlayGameIdRoute
+  '/play/history': typeof PlayHistoryRoute
+  '/play/resume-game': typeof PlayResumeGameRoute
+  '/play': typeof PlayIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/play': typeof PlayRouteRouteWithChildren
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
+  '/play/$gameId': typeof PlayGameIdRoute
+  '/play/history': typeof PlayHistoryRoute
+  '/play/resume-game': typeof PlayResumeGameRoute
+  '/play/': typeof PlayIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth/login' | '/auth/signup'
+  fullPaths:
+    | '/'
+    | '/play'
+    | '/auth/login'
+    | '/auth/signup'
+    | '/play/$gameId'
+    | '/play/history'
+    | '/play/resume-game'
+    | '/play/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth/login' | '/auth/signup'
-  id: '__root__' | '/' | '/auth/login' | '/auth/signup'
+  to:
+    | '/'
+    | '/auth/login'
+    | '/auth/signup'
+    | '/play/$gameId'
+    | '/play/history'
+    | '/play/resume-game'
+    | '/play'
+  id:
+    | '__root__'
+    | '/'
+    | '/play'
+    | '/auth/login'
+    | '/auth/signup'
+    | '/play/$gameId'
+    | '/play/history'
+    | '/play/resume-game'
+    | '/play/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PlayRouteRoute: typeof PlayRouteRouteWithChildren
   AuthLoginRoute: typeof AuthLoginRoute
   AuthSignupRoute: typeof AuthSignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/play': {
+      id: '/play'
+      path: '/play'
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/play/': {
+      id: '/play/'
+      path: '/'
+      fullPath: '/play/'
+      preLoaderRoute: typeof PlayIndexRouteImport
+      parentRoute: typeof PlayRouteRoute
+    }
+    '/play/resume-game': {
+      id: '/play/resume-game'
+      path: '/resume-game'
+      fullPath: '/play/resume-game'
+      preLoaderRoute: typeof PlayResumeGameRouteImport
+      parentRoute: typeof PlayRouteRoute
+    }
+    '/play/history': {
+      id: '/play/history'
+      path: '/history'
+      fullPath: '/play/history'
+      preLoaderRoute: typeof PlayHistoryRouteImport
+      parentRoute: typeof PlayRouteRoute
+    }
+    '/play/$gameId': {
+      id: '/play/$gameId'
+      path: '/$gameId'
+      fullPath: '/play/$gameId'
+      preLoaderRoute: typeof PlayGameIdRouteImport
+      parentRoute: typeof PlayRouteRoute
     }
     '/auth/signup': {
       id: '/auth/signup'
@@ -85,8 +189,27 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface PlayRouteRouteChildren {
+  PlayGameIdRoute: typeof PlayGameIdRoute
+  PlayHistoryRoute: typeof PlayHistoryRoute
+  PlayResumeGameRoute: typeof PlayResumeGameRoute
+  PlayIndexRoute: typeof PlayIndexRoute
+}
+
+const PlayRouteRouteChildren: PlayRouteRouteChildren = {
+  PlayGameIdRoute: PlayGameIdRoute,
+  PlayHistoryRoute: PlayHistoryRoute,
+  PlayResumeGameRoute: PlayResumeGameRoute,
+  PlayIndexRoute: PlayIndexRoute,
+}
+
+const PlayRouteRouteWithChildren = PlayRouteRoute._addFileChildren(
+  PlayRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PlayRouteRoute: PlayRouteRouteWithChildren,
   AuthLoginRoute: AuthLoginRoute,
   AuthSignupRoute: AuthSignupRoute,
 }

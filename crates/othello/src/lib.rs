@@ -1,4 +1,4 @@
-mod bitboard;
+pub mod bitboard;
 pub mod othello_game;
 
 pub fn add(left: u64, right: u64) -> u64 {

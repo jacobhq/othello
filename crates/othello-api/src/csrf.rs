@@ -36,12 +36,12 @@ pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
         return jar.add(cookie).into_response();
     }
 
-    "no".into_response()
+    StatusCode::NO_CONTENT.into_response()
 }
 
 fn extract_csrf_header(headers: &HeaderMap) -> Option<String> {
     headers
-        .get("x-csrf-token")
+        .get("X-Csrf-Token")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string())
 }

@@ -2,14 +2,7 @@ use crate::env_or_dotenv;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
-use axum::{
-    body::Body,
-    extract::{Json, Request},
-    http::{Response, StatusCode},
-    middleware::Next,
-    response::IntoResponse,
-    Form,
-};
+use axum::{body::Body, extract::{Json, Request}, http::{Response, StatusCode}, middleware::Next, response::IntoResponse, Extension, Form};
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use axum_extra::extract::CookieJar;
 use bcrypt::{hash, verify, DEFAULT_COST};
@@ -209,7 +202,7 @@ pub async fn sign_in(
     headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // 6. Send JSON back with cookie set
-    (headers, Redirect::to(FRONTEND_URL)).into_response()
+    (headers, Redirect::to(&format!("{}/play", FRONTEND_URL))).into_response()
 }
 
 fn generate_auth_cookie(token: String) -> Cookie<'static> {
@@ -314,7 +307,7 @@ pub async fn sign_up(
     out_headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
 
     // Final redirect (login successful)
-    (out_headers, Redirect::to(FRONTEND_URL)).into_response()
+    (out_headers, Redirect::to(&format!("{}/play", FRONTEND_URL))).into_response()
 }
 
 pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
@@ -389,3 +382,54 @@ fn validate_password(password: &str) -> bool {
 
     correct_length && has_lower && has_upper && has_digit
 }
+
+#[derive(Serialize)]
+pub struct PublicAccount {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub elo_rating: i32,
+    pub date_joined: chrono::NaiveDateTime,
+    pub last_login: Option<chrono::NaiveDateTime>,
+    pub is_admin: bool,
+}
+
+impl From<Account> for PublicAccount {
+    fn from(acc: Account) -> Self {
+        Self {
+            id: acc.id,
+            username: acc.username,
+            email: acc.email,
+            elo_rating: acc.elo_rating,
+            date_joined: acc.date_joined,
+            last_login: acc.last_login,
+            is_admin: acc.is_admin,
+        }
+    }
+}
+
+pub async fn get_me(
+    Extension(account): Extension<Account>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let public: PublicAccount = account.into();
+    Ok(Json(public))
+}
+
+pub async fn logout() -> impl IntoResponse {
+    // Build a cookie that expires immediately to remove it
+    let cookie = Cookie::build("auth_token")
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::None)
+        .max_age(time::Duration::seconds(0)) // expires immediately
+        .expires(OffsetDateTime::now_utc() - time::Duration::days(1)) // past date
+        .build();
+
+    let mut headers = HeaderMap::new();
+    headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
+
+    // Redirect back to frontend home/login page
+    (headers, Redirect::to(FRONTEND_URL)).into_response()
+}
+

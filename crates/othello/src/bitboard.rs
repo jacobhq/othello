@@ -14,7 +14,7 @@ impl BitBoard {
 
     /// Returns a bit mask (`u64`) with a single bit set at the given (row, col).
     #[inline]
-    pub(crate) fn mask(row: usize, col: usize) -> u64 {
+    pub fn mask(row: usize, col: usize) -> u64 {
         1u64 << Self::index(row, col)
     }
 
@@ -31,6 +31,11 @@ impl BitBoard {
     /// Clears the bit at (row, col).
     pub fn clear(&mut self, row: usize, col: usize) {
         self.0 &= !Self::mask(row, col);
+    }
+
+    /// Converts the board to a slice of u8s.
+    pub fn slices(&self) -> [u8; 8] {
+        self.0.to_le_bytes()
     }
 }
 

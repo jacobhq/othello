@@ -10,9 +10,27 @@ pub struct WasmGame {
 #[wasm_bindgen]
 impl WasmGame {
     /// Create a new standard Othello board.
+    ///
+    /// The player is not passed as a string due to performance reasons
+    /// Use player = 1 for Black, player 2 for White
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmGame {
-        WasmGame { inner: OthelloGame::new() }
+        WasmGame {
+            inner: OthelloGame::new(),
+        }
+    }
+
+    /// Creates a new Othello board from a black and a white bitboard, and sets the current turn.
+    pub fn new_from_state(black: u64, white: u64, player: u8) -> Result<WasmGame, JsValue> {
+        let color = match player {
+            1 => Color::Black,
+            2 => Color::White,
+            _ => return Err(JsValue::from_str("Player out of range")),
+        };
+
+        Ok(WasmGame {
+            inner: OthelloGame::new_with_state(black, white, color),
+        })
     }
 
     /// Play a move (row, col, player = 1 for Black, 2 for White).
@@ -20,7 +38,7 @@ impl WasmGame {
         let color = match player {
             1 => Color::Black,
             2 => Color::White,
-            _ => return Err(JsValue::from_str("Player out of range"))
+            _ => return Err(JsValue::from_str("Player out of range")),
         };
 
         match self.inner.play(row, col, color) {
