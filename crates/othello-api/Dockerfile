@@ -2,7 +2,9 @@ FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
 WORKDIR /app
 
 FROM chef AS planner
-COPY . .
+COPY othello ./othello
+COPY othello-api ./othello-api
+WORKDIR /app/othello-api
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
@@ -21,11 +23,13 @@ ENV BACKEND_URL=${BACKEND_URL}
 ENV APEX_COOKIE_DOMAIN=${APEX_COOKIE_DOMAIN}
 ENV BACKEND_COOKIE_DOMAIN=${BACKEND_COOKIE_DOMAIN}
 
-COPY --from=planner /app/recipe.json recipe.json
+WORKDIR /app/othello-api
+COPY --from=planner /app/othello-api/recipe.json recipe.json
+COPY othello /app/othello
 # Build dependencies - this is the caching Docker layer!
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
-COPY . .
+COPY othello-api .
 RUN cargo build --release --bin othello-api
 
 # We do not need the Rust toolchain to run the binary!
@@ -33,5 +37,5 @@ FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends libssl3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/othello-api /usr/local/bin
+COPY --from=builder /app/othello-api/target/release/othello-api /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/othello-api"]

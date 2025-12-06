@@ -62,7 +62,6 @@ name = "othello-wasm"
 version = "0.1.0"
 dependencies = [
  "othello",
- "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
 ]

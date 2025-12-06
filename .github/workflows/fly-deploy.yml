@@ -25,8 +25,8 @@ jobs:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" --build-arg JWT_SECRET="${{ secrets.JWT_SECRET }}" --build-arg APEX_COOKIE_DOMAIN="${{ secrets.APEX_COOKIE_DOMAIN }}" --build-arg BACKEND_COOKIE_DOMAIN="${{ secrets.BACKEND_COOKIE_DOMAIN }}" --build-arg BACKEND_URL="${{ secrets.BACKEND_URL }}" --build-arg FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
-        working-directory: ./crates/othello-api
+      - run: flyctl deploy --remote-only --config ./othello-api/fly.toml --dockerfile ./othello-api/Dockerfile --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" --build-arg JWT_SECRET="${{ secrets.JWT_SECRET }}" --build-arg APEX_COOKIE_DOMAIN="${{ secrets.APEX_COOKIE_DOMAIN }}" --build-arg BACKEND_COOKIE_DOMAIN="${{ secrets.BACKEND_COOKIE_DOMAIN }}" --build-arg BACKEND_URL="${{ secrets.BACKEND_URL }}" --build-arg FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
+        working-directory: ./crates
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_API_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
