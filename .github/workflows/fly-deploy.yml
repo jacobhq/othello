@@ -18,12 +18,13 @@ jobs:
       - run: wasm-pack build --target bundler --out-dir ../../apps/othello-frontend/pkg
         working-directory: ./crates/othello-wasm
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --build-arg VITE_PUBLIC_POSTHOG_KEY="${{ secrets.POSTHOG_KEY }}" --build-arg VITE_PUBLIC_POSTHOG_HOST="${{ secrets.POSTHOG_HOST }}"
+      - run: flyctl deploy --remote-only --build-arg VITE_PUBLIC_POSTHOG_KEY="${{ secrets.POSTHOG_KEY }}" --build-arg VITE_PUBLIC_POSTHOG_HOST="${{ secrets.POSTHOG_HOST }}" --build-arg VITE_PUBLIC_API_URL="${{ secrets.API_URL }}"
         working-directory: ./apps/othello-frontend
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_FRONT_API_TOKEN }}
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+          API_URL: ${{ secrets.API_URL }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only --config ./othello-api/fly.toml --dockerfile ./othello-api/Dockerfile --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" --build-arg JWT_SECRET="${{ secrets.JWT_SECRET }}" --build-arg APEX_COOKIE_DOMAIN="${{ secrets.APEX_COOKIE_DOMAIN }}" --build-arg BACKEND_COOKIE_DOMAIN="${{ secrets.BACKEND_COOKIE_DOMAIN }}" --build-arg BACKEND_URL="${{ secrets.BACKEND_URL }}" --build-arg FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
         working-directory: ./crates
