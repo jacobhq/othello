@@ -364,9 +364,8 @@ pub async fn get_all_games(
             Ok(player) => player.id,
             Err(err) => {
                 return match err {
-                    Error::RowNotFound => Err(StatusCode::NOT_FOUND),
+                    Error::RowNotFound => Ok(Json(None)),
                     _ => {
-                        println!("err");
                         Err(StatusCode::INTERNAL_SERVER_ERROR)
                     },
                 };
@@ -409,13 +408,12 @@ pub async fn get_all_games(
             }
         }).collect(),
         Err(err) => return match err {
-            Error::RowNotFound => Err(StatusCode::NOT_FOUND),
-            err => {
-                println!("{err:?}");
+            Error::RowNotFound => Ok(Json(None)),
+            _ => {
                 Err(StatusCode::INTERNAL_SERVER_ERROR)
             },
         }
     };
 
-    Ok(Json(games))
+    Ok(Json(Some(games)))
 }

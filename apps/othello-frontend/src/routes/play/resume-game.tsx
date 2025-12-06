@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/breadcrumb.tsx";
 import {columns, type Game} from "@/components/product/game-table-columns.tsx";
 import {DataTable} from "@/components/product/game-table.tsx";
+import {Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle} from "@/components/ui/empty";
+import {Button} from "@/components/ui/button.tsx";
+import {Folder, PlayCircle} from "lucide-react";
 
 export const Route = createFileRoute('/play/resume-game')({
   component: RouteComponent,
@@ -20,7 +23,7 @@ export const Route = createFileRoute('/play/resume-game')({
         credentials: "include",
       });
 
-      if (!res.ok) {
+      if (!res.ok && res.status != 404) {
         // No game exists
         throw new Response("Internal Server Error", {
           status: 500,
@@ -32,6 +35,7 @@ export const Route = createFileRoute('/play/resume-game')({
 
       return data
     } catch (err) {
+      console.log(err)
       throw new Response("Internal Server Error", {
         status: 500,
         statusText: "Internal Server Error",
@@ -71,7 +75,28 @@ function RouteComponent() {
       </div>
     </header>
     <div className="flex flex-col gap-6 p-4 w-full h-full">
-      <DataTable columns={columns} data={data} />
+      {data ? <DataTable columns={columns} data={data}/> : <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Folder />
+          </EmptyMedia>
+          <EmptyTitle>No Games Yet</EmptyTitle>
+          <EmptyDescription>
+            You haven&apos;t created any games yet - get started by creating
+            your first game.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <div className="flex gap-2">
+            <Button asChild>
+              <Link to="/play">
+                <PlayCircle />
+                New game
+              </Link>
+            </Button>
+          </div>
+        </EmptyContent>
+      </Empty>}
     </div>
   </>
 }

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sidebar"
 import {Badge} from "@/components/ui/badge";
 import {useLoaderData} from "@tanstack/react-router";
+import {Button} from "@/components/ui/button.tsx";
 
 const sidebarLinks = [
   {
@@ -125,6 +126,7 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
         <SidebarNavigation items={sidebarLinks}/>
       </SidebarContent>
       <SidebarFooter>
+        <Button variant="outline" id="sidebar-feedback">Give feedback</Button>
         <UserMenu user={user}/>
       </SidebarFooter>
       <SidebarRail/>
