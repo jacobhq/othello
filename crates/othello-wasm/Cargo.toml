@@ -9,5 +9,4 @@ crate-type = ["cdylib"]
 [dependencies]
 othello = { path = "../othello" }
 wasm-bindgen = "0.2.105"
-serde = { version = "1.0.228", features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"

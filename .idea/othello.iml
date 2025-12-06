@@ -10,6 +10,7 @@
       <excludeFolder url="file://$MODULE_DIR$/crates/othello/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-wasm/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-api/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
