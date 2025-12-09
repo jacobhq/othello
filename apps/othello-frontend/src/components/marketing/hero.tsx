@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button.tsx'
 import {Skeleton} from "@/components/ui/skeleton.tsx";
-import {Link} from "@tanstack/react-router";
+import {Link, useLoaderData} from "@tanstack/react-router";
 
 export default function Hero() {
+    const user = useLoaderData({from: "/"});
     return (
         <section className="py-16">
             <div className="relative z-10 mx-auto w-full max-w-2xl px-6 lg:px-0">
@@ -15,17 +16,21 @@ export default function Hero() {
                         <Button
                             rounded="full"
                             asChild>
-                            <a href="#game">
+                            {user ? <Link to="/play">
+                                <span className="text-nowrap">Go to Dashboard</span>
+                            </Link> : <a href="#game">
                                 <span className="text-nowrap">Play Othello</span>
-                            </a>
+                            </a>}
                         </Button>
                         <Button
                             rounded="full"
                             asChild
                             variant="ghost">
-                            <Link to="/auth/signup">
+                            {user ? <Link to="/play/resume-game">
+                                <span className="text-nowrap">Resume Game</span>
+                            </Link> : <Link to="/auth/signup">
                                 <span className="text-nowrap">Sign Up</span>
-                            </Link>
+                            </Link>}
                         </Button>
                     </div>
                 </div>

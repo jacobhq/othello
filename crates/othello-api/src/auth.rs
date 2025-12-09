@@ -2,22 +2,29 @@ use crate::env_or_dotenv;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Redirect;
-use axum::{body::Body, extract::{Json, Request}, http::{Response, StatusCode}, middleware::Next, response::IntoResponse, Extension, Form};
-use axum_extra::extract::cookie::{Cookie, SameSite};
+use axum::{
+    Extension, Form,
+    body::Body,
+    extract::{Json, Request},
+    http::{Response, StatusCode},
+    middleware::Next,
+    response::IntoResponse,
+};
 use axum_extra::extract::CookieJar;
-use bcrypt::{hash, verify, DEFAULT_COST};
+use axum_extra::extract::cookie::{Cookie, SameSite};
+use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use time::Duration as TimeDuration;
 use time::OffsetDateTime;
+use tracing::instrument;
 
 const JWT_SECRET: &str = env_or_dotenv!("JWT_SECRET");
 const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
 const BACKEND_COOKIE_DOMAIN: &str = env_or_dotenv!("BACKEND_COOKIE_DOMAIN");
-
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
@@ -95,7 +102,11 @@ fn extract_jwt_from_cookie(headers: &HeaderMap) -> Option<String> {
         .map(|cookie| cookie.value().to_string())
 }
 
-pub async fn authorise(State(pool): State<PgPool>, mut req: Request, next: Next) -> impl IntoResponse {
+pub async fn authorise(
+    State(pool): State<PgPool>,
+    mut req: Request,
+    next: Next,
+) -> impl IntoResponse {
     let token = match extract_jwt_from_cookie(req.headers()) {
         Some(t) => t,
         None => {
@@ -148,6 +159,7 @@ pub struct SignInData {
     pub csrf: String,
 }
 
+#[instrument(skip(pool, headers, user_data))]
 pub async fn sign_in(
     State(pool): State<PgPool>,
     headers: HeaderMap,
@@ -233,13 +245,15 @@ pub struct SignUpData {
     pub csrf: String,
 }
 
+#[instrument(skip(pool, headers, data))]
 pub async fn sign_up(
     State(pool): State<PgPool>,
     headers: HeaderMap,
     Form(data): Form<SignUpData>,
 ) -> impl IntoResponse {
-    let redirect =
-        |suffix: &str| Redirect::to(&format!("{}/auth/signup?error={}", FRONTEND_URL, suffix)).into_response();
+    let redirect = |suffix: &str| {
+        Redirect::to(&format!("{}/auth/signup?error={}", FRONTEND_URL, suffix)).into_response()
+    };
 
     // CSRF validation
     if !validate_csrf(&headers, &data.csrf) {
@@ -313,9 +327,7 @@ pub async fn sign_up(
 pub fn validate_csrf(headers: &HeaderMap, form_value: &str) -> bool {
     let jar = CookieJar::from_headers(headers);
 
-    let csrf_cookie = jar
-        .get("csrf")
-        .map(|cookie| cookie.value().to_string());
+    let csrf_cookie = jar.get("csrf").map(|cookie| cookie.value().to_string());
 
     match csrf_cookie {
         Some(cookie_val) => cookie_val == form_value,
@@ -408,6 +420,7 @@ impl From<Account> for PublicAccount {
     }
 }
 
+#[instrument(skip(account))]
 pub async fn get_me(
     Extension(account): Extension<Account>,
 ) -> Result<impl IntoResponse, StatusCode> {
@@ -415,6 +428,7 @@ pub async fn get_me(
     Ok(Json(public))
 }
 
+#[instrument]
 pub async fn logout() -> impl IntoResponse {
     // Build a cookie that expires immediately to remove it
     let cookie = Cookie::build("auth_token")
@@ -432,4 +446,3 @@ pub async fn logout() -> impl IntoResponse {
     // Redirect back to frontend home/login page
     (headers, Redirect::to(FRONTEND_URL)).into_response()
 }
-

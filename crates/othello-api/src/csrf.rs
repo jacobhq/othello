@@ -8,9 +8,11 @@ use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::json;
 use time::Duration;
+use tracing::instrument;
 
 const APEX_COOKIE_DOMAIN: &str = env_or_dotenv!("APEX_COOKIE_DOMAIN");
 
+#[instrument]
 pub async fn init_csrf(jar: CookieJar) -> impl IntoResponse {
     if jar.get("csrf").is_none() {
         let token = generate_csrf();

@@ -26,13 +26,16 @@ jobs:
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
           API_URL: ${{ secrets.API_URL }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --config ./othello-api/fly.toml --dockerfile ./othello-api/Dockerfile --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" --build-arg JWT_SECRET="${{ secrets.JWT_SECRET }}" --build-arg APEX_COOKIE_DOMAIN="${{ secrets.APEX_COOKIE_DOMAIN }}" --build-arg BACKEND_COOKIE_DOMAIN="${{ secrets.BACKEND_COOKIE_DOMAIN }}" --build-arg BACKEND_URL="${{ secrets.BACKEND_URL }}" --build-arg FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
+      - run: flyctl deploy --remote-only --config ./othello-api/fly.toml --dockerfile ./othello-api/Dockerfile --build-arg AXIOM_DATASET="${{ secrets.AXIOM_DATASET }}" --build-arg AXIOM_API_TOKEN="${{ secrets.AXIOM_API_TOKEN }}" --build-arg POSTHOG_API_KEY="${{ secrets.POSTHOG_API_KEY }}" --build-arg DATABASE_URL="${{ secrets.DATABASE_URL }}" --build-arg JWT_SECRET="${{ secrets.JWT_SECRET }}" --build-arg APEX_COOKIE_DOMAIN="${{ secrets.APEX_COOKIE_DOMAIN }}" --build-arg BACKEND_COOKIE_DOMAIN="${{ secrets.BACKEND_COOKIE_DOMAIN }}" --build-arg BACKEND_URL="${{ secrets.BACKEND_URL }}" --build-arg FRONTEND_URL="${{ secrets.FRONTEND_URL }}"
         working-directory: ./crates
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_API_TOKEN }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           APEX_COOKIE_DOMAIN: ${{ secrets.APEX_COOKIE_DOMAIN }}
           BACKEND_COOKIE_DOMAIN: ${{ secrets.BACKEND_COOKIE_DOMAIN }}
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          AXIOM_DATASET: ${{ secrets.AXIOM_DATASET }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}

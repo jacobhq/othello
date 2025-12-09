@@ -1,5 +1,4 @@
 use crate::auth::Account;
-use crate::env_or_dotenv;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -9,26 +8,12 @@ use othello::bitboard::BitBoard;
 use othello::othello_game::{Color as OthelloColor, OthelloGame};
 use serde::{Deserialize, Serialize};
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, Error, FromRow, PgPool, Postgres, Type};
+use sqlx::{Database, Decode, Encode, Error, FromRow, PgPool, Postgres};
 use std::fmt::Display;
+use tracing::instrument;
 use uuid::Uuid;
 
-const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
-
-#[derive(Serialize, Deserialize)]
-struct UserResponse {
-    email: String,
-    username: String,
-}
-
-pub async fn hello(Extension(current_user): Extension<Account>) -> impl IntoResponse {
-    Json(UserResponse {
-        email: current_user.email,
-        username: current_user.username,
-    })
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum GameType {
     PlayOnline,
@@ -37,7 +22,7 @@ pub enum GameType {
     PassAndPlay,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GameInfo {
     pub game_type: GameType,
 }
@@ -58,6 +43,7 @@ impl IntoResponse for NewGameResponse {
     }
 }
 
+#[instrument(skip(pool,account))]
 pub async fn new_game(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
@@ -81,7 +67,7 @@ pub async fn new_game(
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
 
-            let player_result = sqlx::query_as::<sqlx::Postgres, PlayerResult>(
+            let player_result = sqlx::query_as::<Postgres, PlayerResult>(
                 "SELECT (id) FROM Player WHERE user_id = $1",
             )
                 .bind(&account.id)
@@ -122,7 +108,7 @@ pub async fn new_game(
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum Color {
     Black,
@@ -157,7 +143,7 @@ impl Display for Color {
     }
 }
 
-impl<'r> Decode<'r, sqlx::Postgres> for Color {
+impl<'r> Decode<'r, Postgres> for Color {
     fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
 
@@ -170,7 +156,7 @@ impl<'r> Decode<'r, sqlx::Postgres> for Color {
 }
 
 impl<'q> Encode<'q, Postgres> for Color {
-    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<(dyn std::error::Error + Send + Sync + 'static)>> {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync + 'static>> {
         let s = match self {
             Color::Black => "black",
             Color::White => "white",
@@ -187,9 +173,9 @@ impl<'q> Encode<'q, Postgres> for Color {
     }
 }
 
-impl sqlx::Type<sqlx::Postgres> for Color {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
-        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
+impl sqlx::Type<Postgres> for Color {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&str as sqlx::Type<Postgres>>::type_info()
     }
 }
 
@@ -212,13 +198,14 @@ struct Player {
     id: String,
 }
 
+#[instrument(skip(pool,account))]
 pub async fn get_in_play_game(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
     Path(game_id): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let player_id =
-        match sqlx::query_as::<sqlx::Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
+        match sqlx::query_as::<Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
             .bind(&account.id)
             .fetch_one(&pool)
             .await
@@ -227,7 +214,7 @@ pub async fn get_in_play_game(
             Err(_) => return Err(StatusCode::NOT_FOUND),
         };
 
-    match sqlx::query_as::<sqlx::Postgres, MinimalGameFromDb>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
+    match sqlx::query_as::<Postgres, MinimalGameFromDb>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
         .bind(game_id.to_string())
         .bind(&player_id)
         .fetch_one(&pool)
@@ -251,13 +238,14 @@ pub async fn get_in_play_game(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Move {
     row: u8,
     col: u8,
     color: Color,
 }
 
+#[instrument(skip(pool,account))]
 pub async fn set_in_play_game(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
@@ -265,7 +253,7 @@ pub async fn set_in_play_game(
     Json(new_move): Json<Move>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let player_id =
-        match sqlx::query_as::<sqlx::Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
+        match sqlx::query_as::<Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
             .bind(&account.id)
             .fetch_one(&pool)
             .await
@@ -279,7 +267,7 @@ pub async fn set_in_play_game(
             }
         };
 
-    let game_from_db = match sqlx::query_as::<sqlx::Postgres, MinimalGameFromDb>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
+    let game_from_db = match sqlx::query_as::<Postgres, MinimalGameFromDb>("SELECT current_turn, bitboard_white, bitboard_black FROM Game WHERE id = $1 AND (player_one_id = $2 OR player_two_id = $2)")
         .bind(game_id.to_string())
         .bind(&player_id)
         .fetch_one(&pool)
@@ -351,12 +339,13 @@ struct GameResponse {
     black_score: u8,
 }
 
+#[instrument(skip(pool,account))]
 pub async fn get_all_games(
     State(pool): State<PgPool>,
     Extension(account): Extension<Account>,
 ) -> impl IntoResponse {
     let player_id =
-        match sqlx::query_as::<sqlx::Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
+        match sqlx::query_as::<Postgres, Player>("SELECT id FROM Player WHERE user_id = $1")
             .bind(&account.id)
             .fetch_one(&pool)
             .await
@@ -372,7 +361,7 @@ pub async fn get_all_games(
             }
         };
 
-    let games: Vec<GameResponse> = match sqlx::query_as::<sqlx::Postgres, GameRow>(
+    let games: Vec<GameResponse> = match sqlx::query_as::<Postgres, GameRow>(
         "SELECT id, timestamp, type, status, bitboard_white, bitboard_black, player_one_id, player_one_color, player_two_id, player_two_color, current_turn FROM Game WHERE (player_one_id = $1 OR player_two_id = $1)",
     )
         .bind(&player_id)
