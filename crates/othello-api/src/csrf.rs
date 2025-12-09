@@ -5,7 +5,7 @@ use axum::http::{HeaderMap, Method, Response, StatusCode};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use serde_json::json;
 use time::Duration;
 use tracing::instrument;
@@ -79,7 +79,7 @@ pub async fn csrf_protect(
 }
 
 pub fn generate_csrf() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(32)
         .map(char::from)
