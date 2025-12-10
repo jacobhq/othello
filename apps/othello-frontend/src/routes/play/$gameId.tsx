@@ -10,7 +10,7 @@ import {
 import {SidebarTrigger} from "@/components/ui/sidebar.tsx";
 import {Separator} from "@/components/ui/separator.tsx";
 import {Button} from "@/components/ui/button.tsx";
-import {Flag} from "lucide-react";
+import {Flag, Settings2} from "lucide-react";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover.tsx";
 import {ButtonGroup} from "@/components/ui/button-group.tsx";
 import {PopoverClose} from "@radix-ui/react-popover";
@@ -26,6 +26,8 @@ import {
   AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import {getCookie} from "@/lib/utils.ts";
+import {Switch} from "@/components/ui/switch.tsx";
+import {Label} from "@/components/ui/label.tsx";
 
 interface ApiGameResponse {
   bitboard_black: string,
@@ -85,6 +87,10 @@ function RouteComponent() {
   const [game, setGame] = useState<WasmGame | null>(null);
   const [board, setBoard] = useState<(0 | 1 | 2)[][]>([]);
   const [legalMoves, setLegalMoves] = useState<[number, number][]>([]);
+  const [showLegalMoves, setShowLegalMoves] = useState<boolean>((): boolean => {
+    const localData = localStorage.getItem('show_legal_moves');
+    return localData ? JSON.parse(localData) as boolean : true;
+  });
   const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
   const [score, setScore] = useState<[number, number]>([0, 0]);
   const [gameOver, setGameOver] = useState(false);
@@ -93,6 +99,10 @@ function RouteComponent() {
     // Initialise the wasm module on mount
     initialiseGame()
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('show_legal_moves', JSON.stringify(showLegalMoves));
+  }, [showLegalMoves]);
 
   const g = WasmGame.new_from_state(initial_state.bitboard_black, initial_state.bitboard_white, initial_turn);
   const initialiseGame = () => {
@@ -209,6 +219,24 @@ function RouteComponent() {
           <Popover>
             <PopoverTrigger asChild>
               <Button disabled={gameOver} variant="ghost">
+                <Settings2/> Settings
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent>
+              <div className="space-y-6">
+                <h4 className="leading-none font-medium">Settings</h4>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center space-x-3">
+                    <Switch id="show-legal-moves" checked={showLegalMoves} onCheckedChange={() => setShowLegalMoves(!showLegalMoves)} />
+                    <Label htmlFor="airplane-mode" className="font-normal text-sm">Show legal moves</Label>
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button disabled={gameOver} variant="ghost">
                 <Flag/> Resign
               </Button>
             </PopoverTrigger>
@@ -229,7 +257,7 @@ function RouteComponent() {
     </header>
     <div className="flex flex-col 2xl:flex-row gap-6 p-0 w-full h-full">
       <div className="flex items-center justify-center flex-1">
-        <Board board={board} legalMoves={legalMoves} handleClick={handleClick}/>
+        <Board board={board} legalMoves={legalMoves} showLegalMoves={showLegalMoves} handleClick={handleClick}/>
       </div>
     </div>
   </>
