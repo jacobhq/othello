@@ -1,12 +1,14 @@
 import Counter from "@/components/game/counter.tsx";
+import LegalMoveDot from "@/components/game/legal-move-dot.tsx";
 
 interface BoardProps {
   disabled?: boolean,
   handleClick?: (i: number, j: number) => void,
-  board: (0 | 1 | 2)[][]
+  board: (0 | 1 | 2)[][],
+  legalMoves?: [number, number][]
 }
 
-export default function Board({board, disabled, handleClick}: BoardProps) {
+export default function Board({board, legalMoves, disabled, handleClick}: BoardProps) {
   disabled ??= false;
 
   return (
@@ -22,6 +24,7 @@ export default function Board({board, disabled, handleClick}: BoardProps) {
                 {board?.[i]?.[j] !== 0 && (
                   <Counter color={board?.[i]?.[j]}/>
                 )}
+                {legalMoves?.some(item => JSON.stringify(item) === JSON.stringify([i,j])) && <LegalMoveDot />}
               </div>
             ))}
           </div>

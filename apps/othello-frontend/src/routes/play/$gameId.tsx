@@ -84,6 +84,7 @@ function RouteComponent() {
 
   const [game, setGame] = useState<WasmGame | null>(null);
   const [board, setBoard] = useState<(0 | 1 | 2)[][]>([]);
+  const [legalMoves, setLegalMoves] = useState<[number, number][]>([]);
   const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
   const [score, setScore] = useState<[number, number]>([0, 0]);
   const [gameOver, setGameOver] = useState(false);
@@ -97,6 +98,7 @@ function RouteComponent() {
   const initialiseGame = () => {
     setGame(g);
     setBoard(g.board());
+    setLegalMoves(g.legal_moves());
     setCurrentPlayer(g.current_player() as 1 | 2);
     setScore([...g.score()] as [number, number]);
   }
@@ -132,6 +134,7 @@ function RouteComponent() {
       game.play_turn(i, j, game.current_player());
       const newBoard = game.board();
       setBoard(newBoard);
+      setLegalMoves(game.legal_moves())
       setScore([...game.score()] as [number, number]);
       setCurrentPlayer(game.current_player() as 2 | 1);
       setGameOver(game.game_over());
@@ -146,7 +149,7 @@ function RouteComponent() {
         <AlertDialogHeader>
           <AlertDialogTitle>{score[0] > score[1] ? "White" : "Black"} wins!</AlertDialogTitle>
           <AlertDialogDescription>
-            If you enjoyed Othello, consider signing up for an account with us.
+            Now you track completed in the game library.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="mt-4">
@@ -155,7 +158,7 @@ function RouteComponent() {
         </div>
         <AlertDialogFooter>
           <Button asChild>
-            <Link to="/play">Continue</Link>
+            <Link to="/play/resume-game">Go to library</Link>
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -226,7 +229,7 @@ function RouteComponent() {
     </header>
     <div className="flex flex-col 2xl:flex-row gap-6 p-0 w-full h-full">
       <div className="flex items-center justify-center flex-1">
-        <Board board={board} handleClick={handleClick}/>
+        <Board board={board} legalMoves={legalMoves} handleClick={handleClick}/>
       </div>
     </div>
   </>
