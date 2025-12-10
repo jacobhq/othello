@@ -9,12 +9,14 @@ import {
 import {Input} from "@/components/ui/input"
 import {Link} from "@tanstack/react-router";
 import {useEffect, useState} from "react";
+import {EyeIcon, EyeOffIcon} from "lucide-react";
 
 export function SignupForm({
                              className,
                              ...props
                            }: React.ComponentProps<"form">) {
   const [csrf, setCsrf] = useState("")
+  const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
     const readCookie = () =>
@@ -67,8 +69,20 @@ export function SignupForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="password">Password</FieldLabel>
-          <Input id="password" name="password" type="password" placeholder="••••••••••••" minLength={8} maxLength={72}
-                 pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}" required/>
+          <div className="relative">
+            <Input id="password" name="password" placeholder="••••••••••••" minLength={8} maxLength={72}
+                   pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}" type={isVisible ? "text" : "password"} required/>
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              onClick={() => setIsVisible(!isVisible)}
+              className="text-muted-foreground focus-visible:ring-ring/50 absolute inset-y-0 right-0 rounded-l-none hover:bg-transparent"
+            >
+              {isVisible ? <EyeOffIcon /> : <EyeIcon />}
+              <span className="sr-only">{isVisible ? "Hide password" : "Show password"}</span>
+            </Button>
+          </div>
           <FieldDescription>
             Must be a combination of digits, uppercase, and lowercase characters at least 8 characters long.
           </FieldDescription>

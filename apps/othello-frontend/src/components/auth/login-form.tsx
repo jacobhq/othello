@@ -9,12 +9,14 @@ import {
 import {Input} from "@/components/ui/input"
 import {Link} from "@tanstack/react-router";
 import {useEffect, useState} from "react";
+import {EyeIcon, EyeOffIcon} from "lucide-react";
 
 export function LoginForm({
                             className,
                             ...props
                           }: React.ComponentProps<"form">) {
   const [csrf, setCsrf] = useState("")
+  const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
     const readCookie = () =>
@@ -67,7 +69,19 @@ export function LoginForm({
               Forgot your password?
             </a>
           </div>
-          <Input id="password" name="password" type="password" required/>
+          <div className="relative">
+            <Input id="password" name="password" type={isVisible ? "text" : "password"} required/>
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              onClick={() => setIsVisible(!isVisible)}
+              className="text-muted-foreground focus-visible:ring-ring/50 absolute inset-y-0 right-0 rounded-l-none hover:bg-transparent"
+            >
+              {isVisible ? <EyeOffIcon /> : <EyeIcon />}
+              <span className="sr-only">{isVisible ? "Hide password" : "Show password"}</span>
+            </Button>
+          </div>
         </Field>
         <Field>
           <Button type="submit">Login</Button>
