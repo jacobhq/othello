@@ -13,6 +13,7 @@ import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthSignupRouteImport } from './routes/auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as DashboardTutorialRouteImport } from './routes/_dashboard/tutorial'
 import { Route as DashboardHomeRouteImport } from './routes/_dashboard/home'
 import { Route as DashboardHistoryRouteImport } from './routes/_dashboard/history'
 import { Route as DashboardPlayIndexRouteImport } from './routes/_dashboard/play/index'
@@ -36,6 +37,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
   getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardTutorialRoute = DashboardTutorialRouteImport.update({
+  id: '/tutorial',
+  path: '/tutorial',
+  getParentRoute: () => DashboardRouteRoute,
 } as any)
 const DashboardHomeRoute = DashboardHomeRouteImport.update({
   id: '/home',
@@ -62,6 +68,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/history': typeof DashboardHistoryRoute
   '/home': typeof DashboardHomeRoute
+  '/tutorial': typeof DashboardTutorialRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
   '/play/$gameId': typeof DashboardPlayGameIdRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/history': typeof DashboardHistoryRoute
   '/home': typeof DashboardHomeRoute
+  '/tutorial': typeof DashboardTutorialRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
   '/play/$gameId': typeof DashboardPlayGameIdRoute
@@ -82,6 +90,7 @@ export interface FileRoutesById {
   '/_dashboard': typeof DashboardRouteRouteWithChildren
   '/_dashboard/history': typeof DashboardHistoryRoute
   '/_dashboard/home': typeof DashboardHomeRoute
+  '/_dashboard/tutorial': typeof DashboardTutorialRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
   '/_dashboard/play/$gameId': typeof DashboardPlayGameIdRoute
@@ -93,6 +102,7 @@ export interface FileRouteTypes {
     | '/'
     | '/history'
     | '/home'
+    | '/tutorial'
     | '/auth/login'
     | '/auth/signup'
     | '/play/$gameId'
@@ -102,6 +112,7 @@ export interface FileRouteTypes {
     | '/'
     | '/history'
     | '/home'
+    | '/tutorial'
     | '/auth/login'
     | '/auth/signup'
     | '/play/$gameId'
@@ -112,6 +123,7 @@ export interface FileRouteTypes {
     | '/_dashboard'
     | '/_dashboard/history'
     | '/_dashboard/home'
+    | '/_dashboard/tutorial'
     | '/auth/login'
     | '/auth/signup'
     | '/_dashboard/play/$gameId'
@@ -155,6 +167,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_dashboard/tutorial': {
+      id: '/_dashboard/tutorial'
+      path: '/tutorial'
+      fullPath: '/tutorial'
+      preLoaderRoute: typeof DashboardTutorialRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
     '/_dashboard/home': {
       id: '/_dashboard/home'
       path: '/home'
@@ -189,6 +208,7 @@ declare module '@tanstack/react-router' {
 interface DashboardRouteRouteChildren {
   DashboardHistoryRoute: typeof DashboardHistoryRoute
   DashboardHomeRoute: typeof DashboardHomeRoute
+  DashboardTutorialRoute: typeof DashboardTutorialRoute
   DashboardPlayGameIdRoute: typeof DashboardPlayGameIdRoute
   DashboardPlayIndexRoute: typeof DashboardPlayIndexRoute
 }
@@ -196,6 +216,7 @@ interface DashboardRouteRouteChildren {
 const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
   DashboardHistoryRoute: DashboardHistoryRoute,
   DashboardHomeRoute: DashboardHomeRoute,
+  DashboardTutorialRoute: DashboardTutorialRoute,
   DashboardPlayGameIdRoute: DashboardPlayGameIdRoute,
   DashboardPlayIndexRoute: DashboardPlayIndexRoute,
 }

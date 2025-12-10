@@ -5,6 +5,7 @@ import {Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage} from "@/comp
 import {Item, ItemContent, ItemDescription, ItemGroup, ItemTitle} from "@/components/ui/item.tsx";
 import {DataTable} from "@/components/product/game-table.tsx";
 import {columns, type Game} from "@/components/product/game-table-columns.tsx";
+import {Badge} from "@/components/ui/badge.tsx";
 
 export const Route = createFileRoute('/_dashboard/home')({
   component: RouteComponent,
@@ -41,16 +42,17 @@ const items = [
   {
     title: "Take Tutorial",
     description: "Learn how to play Othello",
-    to: "/"
+    to: "/tutorial",
+    badge: "Recommended"
   },
   {
     title: "Play Othello",
-    description: "Play Othello in a variety of game modes",
+    description: "Play Othello in many game modes",
     to: "/play"
   },
   {
     title: "Game History",
-    description: "View ongoing games and games that you have played in the past",
+    description: "View ongoing and past games",
     to: "/history"
   }
 ]
@@ -74,7 +76,7 @@ function RouteComponent() {
       </div>
     </header>
     <div className="flex p-4 pt-32 justify-center w-full h-full">
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col container max-w-4xl gap-4">
         <h1 className="font-bold text-4xl">Welcome to Othello</h1>
         <p className="text-muted-foreground mb-4">Play Othello on the world's most popular Othello platform.</p>
         <ItemGroup className="flex flex-col xl:flex-row gap-4">
@@ -82,7 +84,10 @@ function RouteComponent() {
             <Item key={item.title} className="container max-w-xl" variant="outline" asChild>
               <Link to={item.to}>
                 <ItemContent>
-                  <ItemTitle>{item.title}</ItemTitle>
+                  <ItemTitle>
+                    {item.title}
+                    {item.badge && <Badge>{item.badge}</Badge>}
+                  </ItemTitle>
                   <ItemDescription>{item.description}</ItemDescription>
                 </ItemContent>
               </Link>
