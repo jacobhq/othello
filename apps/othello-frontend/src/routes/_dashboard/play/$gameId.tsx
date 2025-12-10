@@ -41,7 +41,7 @@ interface ApiGame {
   current_turn: string
 }
 
-export const Route = createFileRoute('/play/$gameId')({
+export const Route = createFileRoute('/_dashboard/play/$gameId')({
   component: RouteComponent,
   loader: async ({params}) => {
     try {
@@ -159,7 +159,7 @@ function RouteComponent() {
         <AlertDialogHeader>
           <AlertDialogTitle>{score[0] > score[1] ? "White" : "Black"} wins!</AlertDialogTitle>
           <AlertDialogDescription>
-            Now you track completed in the game library.
+            Good game! Thanks for playing Othello.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="mt-4">
@@ -168,7 +168,7 @@ function RouteComponent() {
         </div>
         <AlertDialogFooter>
           <Button asChild>
-            <Link to="/play/resume-game">Go to library</Link>
+            <Link to="/">Continue</Link>
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

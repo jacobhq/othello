@@ -9,44 +9,23 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as PlayRouteRouteImport } from './routes/play/route'
+import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PlayIndexRouteImport } from './routes/play/index'
-import { Route as PlayResumeGameRouteImport } from './routes/play/resume-game'
-import { Route as PlayHistoryRouteImport } from './routes/play/history'
-import { Route as PlayGameIdRouteImport } from './routes/play/$gameId'
 import { Route as AuthSignupRouteImport } from './routes/auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as DashboardHomeRouteImport } from './routes/_dashboard/home'
+import { Route as DashboardHistoryRouteImport } from './routes/_dashboard/history'
+import { Route as DashboardPlayIndexRouteImport } from './routes/_dashboard/play/index'
+import { Route as DashboardPlayGameIdRouteImport } from './routes/_dashboard/play/$gameId'
 
-const PlayRouteRoute = PlayRouteRouteImport.update({
-  id: '/play',
-  path: '/play',
+const DashboardRouteRoute = DashboardRouteRouteImport.update({
+  id: '/_dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const PlayIndexRoute = PlayIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => PlayRouteRoute,
-} as any)
-const PlayResumeGameRoute = PlayResumeGameRouteImport.update({
-  id: '/resume-game',
-  path: '/resume-game',
-  getParentRoute: () => PlayRouteRoute,
-} as any)
-const PlayHistoryRoute = PlayHistoryRouteImport.update({
-  id: '/history',
-  path: '/history',
-  getParentRoute: () => PlayRouteRoute,
-} as any)
-const PlayGameIdRoute = PlayGameIdRouteImport.update({
-  id: '/$gameId',
-  path: '/$gameId',
-  getParentRoute: () => PlayRouteRoute,
 } as any)
 const AuthSignupRoute = AuthSignupRouteImport.update({
   id: '/auth/signup',
@@ -58,83 +37,101 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardHomeRoute = DashboardHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
+const DashboardHistoryRoute = DashboardHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
+const DashboardPlayIndexRoute = DashboardPlayIndexRouteImport.update({
+  id: '/play/',
+  path: '/play/',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
+const DashboardPlayGameIdRoute = DashboardPlayGameIdRouteImport.update({
+  id: '/play/$gameId',
+  path: '/play/$gameId',
+  getParentRoute: () => DashboardRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/play': typeof PlayRouteRouteWithChildren
+  '/history': typeof DashboardHistoryRoute
+  '/home': typeof DashboardHomeRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
-  '/play/$gameId': typeof PlayGameIdRoute
-  '/play/history': typeof PlayHistoryRoute
-  '/play/resume-game': typeof PlayResumeGameRoute
-  '/play/': typeof PlayIndexRoute
+  '/play/$gameId': typeof DashboardPlayGameIdRoute
+  '/play': typeof DashboardPlayIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/history': typeof DashboardHistoryRoute
+  '/home': typeof DashboardHomeRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
-  '/play/$gameId': typeof PlayGameIdRoute
-  '/play/history': typeof PlayHistoryRoute
-  '/play/resume-game': typeof PlayResumeGameRoute
-  '/play': typeof PlayIndexRoute
+  '/play/$gameId': typeof DashboardPlayGameIdRoute
+  '/play': typeof DashboardPlayIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/play': typeof PlayRouteRouteWithChildren
+  '/_dashboard': typeof DashboardRouteRouteWithChildren
+  '/_dashboard/history': typeof DashboardHistoryRoute
+  '/_dashboard/home': typeof DashboardHomeRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/signup': typeof AuthSignupRoute
-  '/play/$gameId': typeof PlayGameIdRoute
-  '/play/history': typeof PlayHistoryRoute
-  '/play/resume-game': typeof PlayResumeGameRoute
-  '/play/': typeof PlayIndexRoute
+  '/_dashboard/play/$gameId': typeof DashboardPlayGameIdRoute
+  '/_dashboard/play/': typeof DashboardPlayIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/play'
+    | '/history'
+    | '/home'
     | '/auth/login'
     | '/auth/signup'
     | '/play/$gameId'
-    | '/play/history'
-    | '/play/resume-game'
-    | '/play/'
+    | '/play'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/history'
+    | '/home'
     | '/auth/login'
     | '/auth/signup'
     | '/play/$gameId'
-    | '/play/history'
-    | '/play/resume-game'
     | '/play'
   id:
     | '__root__'
     | '/'
-    | '/play'
+    | '/_dashboard'
+    | '/_dashboard/history'
+    | '/_dashboard/home'
     | '/auth/login'
     | '/auth/signup'
-    | '/play/$gameId'
-    | '/play/history'
-    | '/play/resume-game'
-    | '/play/'
+    | '/_dashboard/play/$gameId'
+    | '/_dashboard/play/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  PlayRouteRoute: typeof PlayRouteRouteWithChildren
+  DashboardRouteRoute: typeof DashboardRouteRouteWithChildren
   AuthLoginRoute: typeof AuthLoginRoute
   AuthSignupRoute: typeof AuthSignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/play': {
-      id: '/play'
-      path: '/play'
-      fullPath: '/play'
-      preLoaderRoute: typeof PlayRouteRouteImport
+    '/_dashboard': {
+      id: '/_dashboard'
+      path: ''
+      fullPath: ''
+      preLoaderRoute: typeof DashboardRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -143,34 +140,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/play/': {
-      id: '/play/'
-      path: '/'
-      fullPath: '/play/'
-      preLoaderRoute: typeof PlayIndexRouteImport
-      parentRoute: typeof PlayRouteRoute
-    }
-    '/play/resume-game': {
-      id: '/play/resume-game'
-      path: '/resume-game'
-      fullPath: '/play/resume-game'
-      preLoaderRoute: typeof PlayResumeGameRouteImport
-      parentRoute: typeof PlayRouteRoute
-    }
-    '/play/history': {
-      id: '/play/history'
-      path: '/history'
-      fullPath: '/play/history'
-      preLoaderRoute: typeof PlayHistoryRouteImport
-      parentRoute: typeof PlayRouteRoute
-    }
-    '/play/$gameId': {
-      id: '/play/$gameId'
-      path: '/$gameId'
-      fullPath: '/play/$gameId'
-      preLoaderRoute: typeof PlayGameIdRouteImport
-      parentRoute: typeof PlayRouteRoute
     }
     '/auth/signup': {
       id: '/auth/signup'
@@ -186,30 +155,58 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_dashboard/home': {
+      id: '/_dashboard/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof DashboardHomeRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
+    '/_dashboard/history': {
+      id: '/_dashboard/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof DashboardHistoryRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
+    '/_dashboard/play/': {
+      id: '/_dashboard/play/'
+      path: '/play'
+      fullPath: '/play'
+      preLoaderRoute: typeof DashboardPlayIndexRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
+    '/_dashboard/play/$gameId': {
+      id: '/_dashboard/play/$gameId'
+      path: '/play/$gameId'
+      fullPath: '/play/$gameId'
+      preLoaderRoute: typeof DashboardPlayGameIdRouteImport
+      parentRoute: typeof DashboardRouteRoute
+    }
   }
 }
 
-interface PlayRouteRouteChildren {
-  PlayGameIdRoute: typeof PlayGameIdRoute
-  PlayHistoryRoute: typeof PlayHistoryRoute
-  PlayResumeGameRoute: typeof PlayResumeGameRoute
-  PlayIndexRoute: typeof PlayIndexRoute
+interface DashboardRouteRouteChildren {
+  DashboardHistoryRoute: typeof DashboardHistoryRoute
+  DashboardHomeRoute: typeof DashboardHomeRoute
+  DashboardPlayGameIdRoute: typeof DashboardPlayGameIdRoute
+  DashboardPlayIndexRoute: typeof DashboardPlayIndexRoute
 }
 
-const PlayRouteRouteChildren: PlayRouteRouteChildren = {
-  PlayGameIdRoute: PlayGameIdRoute,
-  PlayHistoryRoute: PlayHistoryRoute,
-  PlayResumeGameRoute: PlayResumeGameRoute,
-  PlayIndexRoute: PlayIndexRoute,
+const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
+  DashboardHistoryRoute: DashboardHistoryRoute,
+  DashboardHomeRoute: DashboardHomeRoute,
+  DashboardPlayGameIdRoute: DashboardPlayGameIdRoute,
+  DashboardPlayIndexRoute: DashboardPlayIndexRoute,
 }
 
-const PlayRouteRouteWithChildren = PlayRouteRoute._addFileChildren(
-  PlayRouteRouteChildren,
+const DashboardRouteRouteWithChildren = DashboardRouteRoute._addFileChildren(
+  DashboardRouteRouteChildren,
 )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  PlayRouteRoute: PlayRouteRouteWithChildren,
+  DashboardRouteRoute: DashboardRouteRouteWithChildren,
   AuthLoginRoute: AuthLoginRoute,
   AuthSignupRoute: AuthSignupRoute,
 }

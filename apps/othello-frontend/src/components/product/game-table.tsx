@@ -16,18 +16,22 @@ import {
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
-  data: TData[]
+  data: TData[],
+  n?: number
 }
 
 export function DataTable<TData, TValue>({
                                            columns,
                                            data,
+                                           n
                                          }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
   })
+  const rows = table.getRowModel().rows
+  const displayedRows = n ? rows.slice(0, n) : rows
 
   return (
     <div className="overflow-hidden rounded-md border">
@@ -52,7 +56,7 @@ export function DataTable<TData, TValue>({
         </TableHeader>
         <TableBody>
           {table.getRowModel().rows?.length ? (
-            table.getRowModel().rows.map((row) => (
+            displayedRows.map((row) => (
               <TableRow
                 key={row.id}
                 data-state={row.getIsSelected() && "selected"}

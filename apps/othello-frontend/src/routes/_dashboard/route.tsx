@@ -4,7 +4,7 @@ import {Sidebar} from "@/components/product/sidebar";
 import type {User} from "@/lib/user.ts";
 import posthog from "posthog-js";
 
-export const Route = createFileRoute("/play")({
+export const Route = createFileRoute("/_dashboard")({
   component: RouteComponent,
   pendingComponent: PlaySkeleton,
   loader: async () => {

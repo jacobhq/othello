@@ -1,6 +1,6 @@
 import {createFileRoute, Link, useNavigate} from "@tanstack/react-router"
 import Board from "@/components/game/board.tsx";
-import {BookOpen, Bot, MessageCircleWarningIcon, PlayCircle, UserPlus, Users, Zap} from "lucide-react";
+import {BookOpen, Bot, MessageCircleWarningIcon, UserPlus, Users, Zap} from "lucide-react";
 import {Button} from "@/components/ui/button.tsx";
 import {Alert, AlertDescription, AlertTitle} from "@/components/ui/alert.tsx";
 import {type ComponentType, type FormEvent, useState} from "react";
@@ -27,7 +27,7 @@ import {toast} from "sonner";
 import {Spinner} from "@/components/ui/spinner.tsx";
 import {getCookie} from "@/lib/utils.ts";
 
-export const Route = createFileRoute("/play/")({
+export const Route = createFileRoute("/_dashboard/play/")({
   component: RouteComponent,
 })
 
@@ -196,13 +196,7 @@ function RouteComponent() {
 
         <div className="flex gap-3 mt-4">
           <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent" asChild>
-            <Link to="/play/resume-game">
-              <PlayCircle className="w-4 h-4"/>
-              Resume game
-            </Link>
-          </Button>
-          <Button size="icon-lg" variant="ghost" className="flex-1 gap-2 bg-transparent" asChild>
-            <Link to="/play/history">
+            <Link to="/history">
               <BookOpen className="w-4 h-4"/>
               Game history
             </Link>
