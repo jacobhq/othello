@@ -14,7 +14,7 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar"
 import {Badge} from "@/components/ui/badge";
-import {useLoaderData} from "@tanstack/react-router";
+import {Link, useLoaderData} from "@tanstack/react-router";
 import {Button} from "@/components/ui/button.tsx";
 
 const sidebarLinks = [
@@ -109,15 +109,17 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip="Othello">
-              <div
-                className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                <Circle className="size-4"/>
-              </div>
-              <div className="flex items-center gap-1.5 text-left text-sm leading-tight">
-                <span className="truncate font-semibold h-fit">Othello</span>
-                <Badge variant="default">ALPHA</Badge>
-              </div>
+            <SidebarMenuButton size="lg" tooltip="Othello" asChild>
+              <Link to="/play">
+                <div
+                  className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
+                  <Circle className="size-4"/>
+                </div>
+                <div className="flex items-center gap-1.5 text-left text-sm leading-tight">
+                  <span className="truncate font-semibold h-fit">Othello</span>
+                  <Badge variant="default">ALPHA</Badge>
+                </div>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
