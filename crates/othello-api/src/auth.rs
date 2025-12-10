@@ -293,8 +293,8 @@ pub async fn sign_up(
     let id = uuid::Uuid::new_v4().to_string();
     let insert_result = sqlx::query(
         r#"
-        INSERT INTO Account (id, username, email, password_hash, elo_rating, date_joined, is_admin)
-        VALUES ($1, $2, $3, $4, 800, CURRENT_TIMESTAMP, false)
+        INSERT INTO Account (id, username, email, password_hash, elo_rating, date_joined, last_login, is_admin)
+        VALUES ($1, $2, $3, $4, 800, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, false)
         "#,
     )
     .bind(&id)
