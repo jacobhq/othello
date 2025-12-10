@@ -431,14 +431,19 @@ pub async fn get_me(
 #[instrument]
 pub async fn logout() -> impl IntoResponse {
     // Build a cookie that expires immediately to remove it
-    let cookie = Cookie::build("auth_token")
+    let mut cookie_builder = Cookie::build("auth_token")
         .path("/")
         .http_only(true)
         .secure(true)
         .same_site(SameSite::None)
         .max_age(time::Duration::seconds(0)) // expires immediately
-        .expires(OffsetDateTime::now_utc() - time::Duration::days(1)) // past date
-        .build();
+        .expires(OffsetDateTime::now_utc() - time::Duration::days(1)); // past date
+
+    if !cfg!(debug_assertions) {
+        cookie_builder = cookie_builder.domain(BACKEND_COOKIE_DOMAIN);
+    }
+
+    let cookie = cookie_builder.build();
 
     let mut headers = HeaderMap::new();
     headers.insert("Set-Cookie", cookie.to_string().parse().unwrap());
