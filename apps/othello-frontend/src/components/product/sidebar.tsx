@@ -62,7 +62,7 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
         <SidebarNavigation items={sidebarLinks}/>
       </SidebarContent>
       <SidebarFooter>
-        <Button variant="outline" id="sidebar-feedback">Give feedback</Button>
+        <Button variant="outline" id="sidebar-feedback" className="hidden md:flex">Give feedback</Button>
         <UserMenu user={user}/>
       </SidebarFooter>
       <SidebarRail/>

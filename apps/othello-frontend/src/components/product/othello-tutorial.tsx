@@ -193,8 +193,12 @@ export function OthelloTutorial() {
                     }`}
                   />
                 </div>
-                <div className="size-12 bg-accent/30 rounded-sm" />
-                <div className="size-12 bg-accent/30 rounded-sm" />
+                <div className="size-12 bg-accent/30 rounded-sm flex items-center justify-center">
+                  <div className="size-8 rounded-full bg-background border-2 border-foreground" />
+                </div>
+                <div className="size-12 bg-accent/30 rounded-sm flex items-center justify-center">
+                  <div className="size-8 rounded-full bg-foreground" />
+                </div>
                 <div className="size-12 bg-accent/30 rounded-sm" />
 
                 {/* Row 3 */}
@@ -234,9 +238,7 @@ export function OthelloTutorial() {
                 <div className="size-12 bg-accent/30 rounded-sm" />
 
                 {/* Row 5 */}
-                <div className="size-12 bg-accent/30 rounded-sm flex items-center justify-center">
-                  <div className="size-8 rounded-full bg-foreground" />
-                </div>
+                <div className="size-12 bg-accent/30 rounded-sm" />
                 <div className="size-12 bg-accent/30 rounded-sm" />
                 <div className="size-12 bg-accent/30 rounded-sm" />
                 <div className="size-12 bg-accent/30 rounded-sm" />
