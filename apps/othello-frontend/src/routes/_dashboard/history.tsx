@@ -14,7 +14,7 @@ import {Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTit
 import {Button} from "@/components/ui/button.tsx";
 import {Folder, PlayCircle} from "lucide-react";
 
-export const Route = createFileRoute('/play/resume-game')({
+export const Route = createFileRoute('/_dashboard/history')({
   component: RouteComponent,
   loader: async () => {
     try {
@@ -61,14 +61,8 @@ function RouteComponent() {
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator className="hidden md:block"/>
-            <BreadcrumbItem className="hidden md:block">
-              <BreadcrumbLink asChild>
-                <Link to="/play">Play</Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="hidden md:block"/>
             <BreadcrumbItem>
-              <BreadcrumbPage>Resume Game</BreadcrumbPage>
+              <BreadcrumbPage>History</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>

@@ -15,10 +15,12 @@ import {
 } from "@/components/ui/dialog"
 import posthog from "posthog-js";
 import {Link} from "@tanstack/react-router";
+import LegalMoveDot from "@/components/game/legal-move-dot.tsx";
 
 export default function DemoBoard() {
     const [game, setGame] = useState<WasmGame | null>(null);
     const [board, setBoard] = useState<(0 | 1 | 2)[][]>([]);
+    const [legalMoves, setLegalMoves] = useState<[number, number][]>([]);
     const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
     const [score, setScore] = useState<[number, number]>([0, 0]);
     const [gameOver, setGameOver] = useState(false);
@@ -33,6 +35,7 @@ export default function DemoBoard() {
         const g = new WasmGame();
         setGame(g);
         setBoard(g.board());
+        setLegalMoves(g.legal_moves());
         setCurrentPlayer(g.current_player() as 1 | 2);
         setScore([...g.score()] as [number, number]);
     }
@@ -47,6 +50,7 @@ export default function DemoBoard() {
             game.play_turn(i, j, game.current_player())
             const newBoard = game.board();
             setBoard(newBoard)
+            setLegalMoves(game.legal_moves())
             setScore([...game.score()] as [number, number])
             setCurrentPlayer(game.current_player() as 2 | 1)
             setGameOver(game.game_over())
@@ -115,6 +119,7 @@ export default function DemoBoard() {
                                 {board?.[i]?.[j] !== 0 && (
                                     <Counter color={board?.[i]?.[j]}/>
                                 )}
+                                {legalMoves.some(item => JSON.stringify(item) === JSON.stringify([i,j])) && <LegalMoveDot />}
                             </div>
                         ))}
                     </div>
