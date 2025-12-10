@@ -16,8 +16,7 @@ export const Route = createFileRoute('/_dashboard/home')({
         credentials: "include",
       });
 
-      if (!res.ok && res.status != 404) {
-        // No game exists
+      if (!res.ok) {
         throw new Response("Internal Server Error", {
           status: 500,
           statusText: "Internal Server Error",
@@ -25,9 +24,9 @@ export const Route = createFileRoute('/_dashboard/home')({
       }
 
       let data: Game[] = await res.json();
-      return [...data].sort(
+      return data ? [...data].sort(
         (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      )
+      ) : data
     } catch (err) {
       console.log(err)
       throw new Response("Internal Server Error", {
