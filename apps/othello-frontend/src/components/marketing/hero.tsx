@@ -15,16 +15,16 @@ export default function Hero() {
                         <Button
                             rounded="full"
                             asChild>
-                            <a href="#game">
-                                <span className="text-nowrap">Play Othello</span>
-                            </a>
+                            <Link to="/auth/signup">
+                                <span className="text-nowrap">Create Account</span>
+                            </Link>
                         </Button>
                         <Button
                             rounded="full"
                             asChild
                             variant="ghost">
-                            <Link to="/auth/signup">
-                                <span className="text-nowrap">Sign Up</span>
+                            <Link to="/auth/login">
+                                <span className="text-nowrap">Sign In</span>
                             </Link>
                         </Button>
                     </div>
