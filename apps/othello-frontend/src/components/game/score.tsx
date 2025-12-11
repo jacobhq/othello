@@ -22,7 +22,7 @@ export default function Score({ blackScore, whiteScore, highlightedPlayer }: Sco
                 <div
                     className={cn(
                         "h-10 w-10 rounded-full border-3 transition-all duration-300 flex-shrink-0",
-                        highlightedPlayer === 1 ? "border-foreground bg-foreground shadow-md" : "border-muted bg-foreground",
+                        highlightedPlayer === 1 ? "border-white bg-black shadow-md" : "border-muted bg-black",
                         !highlightedPlayer && "opacity-100"
                     )}
                 />
@@ -45,7 +45,7 @@ export default function Score({ blackScore, whiteScore, highlightedPlayer }: Sco
                 <div
                     className={cn(
                         "h-10 w-10 rounded-full border-3 transition-all duration-300 flex-shrink-0",
-                        highlightedPlayer === 2 ? "border-foreground bg-background shadow-md" : "border-muted bg-background",
+                        highlightedPlayer === 2 ? "border-black bg-white shadow-md" : "border-muted bg-white",
                         !highlightedPlayer && "opacity-100"
                     )}
                 />
