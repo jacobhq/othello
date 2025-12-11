@@ -189,8 +189,9 @@ struct MinimalGameFromDb {
 #[derive(Serialize, FromRow)]
 pub struct InPlayResponse {
     current_turn: String,
-    bitboard_white: u64,
-    bitboard_black: u64,
+    // JSON can't represent u64s!
+    bitboard_white: String,
+    bitboard_black: String,
 }
 
 #[derive(FromRow)]
@@ -225,8 +226,8 @@ pub async fn get_in_play_game(
 
             let response = InPlayResponse {
                 current_turn: row.current_turn.to_string(),
-                bitboard_white: u64::from_le_bytes(w),
-                bitboard_black: u64::from_le_bytes(b),
+                bitboard_white: u64::from_le_bytes(w).to_string(),
+                bitboard_black: u64::from_le_bytes(b).to_string(),
             };
 
             Ok(Json(response))

@@ -21,6 +21,7 @@ impl WasmGame {
     }
 
     /// Creates a new Othello board from a black and a white bitboard, and sets the current turn.
+    #[wasm_bindgen]
     pub fn new_from_state(black: u64, white: u64, player: u8) -> Result<WasmGame, JsValue> {
         let color = match player {
             1 => Color::Black,
