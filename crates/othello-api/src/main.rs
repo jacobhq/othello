@@ -5,6 +5,7 @@ mod db;
 mod env_macro;
 mod routes;
 mod services;
+mod hex_u64;
 
 use crate::auth::{authorise, get_me};
 use crate::csrf::{csrf_protect, init_csrf};

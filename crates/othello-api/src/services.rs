@@ -1,3 +1,4 @@
+use crate::hex_u64;
 use crate::auth::Account;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -189,9 +190,11 @@ struct MinimalGameFromDb {
 #[derive(Serialize, FromRow)]
 pub struct InPlayResponse {
     current_turn: String,
-    // JSON can't represent u64s!
-    bitboard_white: String,
-    bitboard_black: String,
+    // JSON in JS can't represent u64s!
+    #[serde(with = "hex_u64")]
+    bitboard_white: u64,
+    #[serde(with = "hex_u64")]
+    bitboard_black: u64,
 }
 
 #[derive(FromRow)]
@@ -226,8 +229,8 @@ pub async fn get_in_play_game(
 
             let response = InPlayResponse {
                 current_turn: row.current_turn.to_string(),
-                bitboard_white: u64::from_le_bytes(w).to_string(),
-                bitboard_black: u64::from_le_bytes(b).to_string(),
+                bitboard_white: u64::from_le_bytes(w),
+                bitboard_black: u64::from_le_bytes(b),
             };
 
             Ok(Json(response))
