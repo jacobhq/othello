@@ -21,6 +21,7 @@ axum-extra = { version = "0.12.2", features = ["cookie"] }
 uuid = { version= "1.18.1", features = ["v4"] }
 regex = "1.12.2"
 time = { version = "0.3.44", features = ["serde"] }
+async-posthog = { git = "https://github.com/jacobhq/posthog-rs.git" }
 posthog-rs = "0.3.7"
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }

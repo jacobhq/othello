@@ -1,36 +1,30 @@
-use axum::Extension;
-use axum::extract::{Request, State};
-use axum::middleware::Next;
-use axum::response::IntoResponse;
-use posthog_rs::Client;
-use crate::auth::Account;
+use std::time::Duration;
+use async_posthog::ClientOptions;
+use async_posthog::Client;
+use crate::env_or_dotenv;
 
-pub async fn track_authenticated(
-    State(posthog_client): State<Client>,
-    Extension(account): Extension<Account>,
-    req: Request,
-    next: Next,
-) -> impl IntoResponse {
-    let event = posthog_rs::Event::new("api_hit", req.uri().path());
+const POSTHOG_API_KEY: &str = env_or_dotenv!("POSTHOG_API_KEY");
 
-    posthog_client.capture(event).await.unwrap();
+struct Analytics {
+    client: Client
 }
 
-pub async fn track_anon(
-    State(posthog_client): State<Client>,
-    Extension(account): Extension<Account>,
-    req: Request,
-    next: Next,
-) -> impl IntoResponse {
-    let event = posthog_rs::Event::new("api_hit", req.uri().path());
-
-    posthog_client.capture(event).await.unwrap();
+struct InternalClientOptions {
+    api_endpoint: String,
+    api_key: String,
+    timeout: Duration,
 }
 
-// pub fn user_signed_up(id: &str, email: &str, username: String) {
-//     let mut event = posthog_rs::Event::new("user_signed_up", id);
-//     event.insert_prop("email", email).unwrap();
-//     event.insert_prop("email", username).unwrap();
-//
-//     client.capture(event).unwrap();
-// }
+impl Into<ClientOptions> for &str {
+    fn into(self) -> ClientOptions {
+        todo!()
+    }
+}
+
+impl Analytics {
+    fn new() -> Self {
+        Analytics {
+            client: async_posthog::client(POSTHOG_API_KEY)
+        }
+    }
+}
