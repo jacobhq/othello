@@ -431,7 +431,7 @@ mod tests {
         }
 
         let policy = root.borrow().policy_vector();
-        // A valid probability distribution must sum to 1
+        // A valid probability distribution must sum to 1 (but we'll tolerate it if it's a little off)
         let sum: f32 = policy.iter().sum();
 
         assert!((sum - 1.0).abs() < 1e-5);
@@ -535,6 +535,9 @@ mod tests {
         assert!(policy.iter().all(|&p| p == 0.0));
     }
 
+    /// Tests that the root node visit count matches the number of MCTS iterations.
+    /// Each iteration performs a single expansion (if possible) and backpropagation,
+    /// so the root should be visited exactly once per iteration.
     #[test]
     fn root_visit_count_equals_iterations() {
         let game = initial_game();
@@ -557,6 +560,9 @@ mod tests {
         assert_eq!(root.borrow().visits, iterations);
     }
 
+    /// Tests consistency between parent and child visit counts.
+    /// The total number of visits across all child nodes should equal
+    /// the visit count stored on the parent node.
     #[test]
     fn child_visits_sum_to_root_visits() {
         let game = initial_game();
