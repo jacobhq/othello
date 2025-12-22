@@ -1,0 +1,118 @@
+//! Neural network inference utilities for Othello self-play.
+//!
+//! This module provides helpers for loading an ONNX neural network model
+//! and evaluating Othello positions using that model.
+//!
+//! The neural network is assumed to follow an AlphaZero-style interface:
+//!
+//! - **Input**: a `(1, 2, 8, 8)` tensor representing the board state from the
+//!   current player's perspective
+//!     - Channel 0: current player's stones
+//!     - Channel 1: opponent's stones
+//! - **Outputs**:
+//!     1. A policy vector of length 64, giving a score or probability for
+//!        placing a stone on each board square
+//!     2. A scalar value estimating the position outcome from the current
+//!        player's perspective
+//!
+//! The policy output is filtered to include only legal moves before being
+//! returned.
+
+use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::value::Tensor;
+use ort::Error;
+use othello::othello_game::{Color, OthelloGame};
+
+/// Standardised way to load the model during self-play iterations
+pub(crate) fn load_model(path: &str) -> Result<Session, Error> {
+    let model = Session::builder()?
+        .with_optimization_level(GraphOptimizationLevel::Level3)?
+        .with_intra_threads(4)?
+        .commit_from_file(path)?;
+
+    Ok(model)
+}
+
+/// An element in the policy vector in form ((row, col), probability)
+type PolicyElement = ((usize, usize), f32);
+
+/// A tuple containing the policy vector, and an evaluation scalar
+type PolicyVectorWithEvaluation = (Vec<PolicyElement>, f32);
+
+/// Evaluates an Othello position using a neural network.
+///
+/// This function encodes the given game state into a neural network input
+/// tensor, runs inference using the provided ONNX model, and returns:
+///
+/// - A policy over *legal moves only*, pairing each legal `(row, col)` move
+///   with its corresponding probability or score from the network
+/// - A scalar value estimating the position from the current player's
+///   perspective
+///
+/// # Arguments
+///
+/// * `model` - A mutable reference to an initialised ONNX `Session` used to
+///   perform inference
+/// * `game` - The current `OthelloGame` position to evaluate
+/// * `player` - The player for whom the evaluation is performed; the board
+///   is encoded relative to this player
+///
+/// # Returns
+///
+/// On success, returns a `PolicyVectorWithEvaluation`
+///
+/// If inference or tensor extraction fails, an `ort::Error` is returned.
+///
+/// # Neural Network Assumptions
+///
+/// The model is expected to output:
+///
+/// 1. A policy tensor with 64 elements, corresponding to board positions
+///    indexed by `row * 8 + col`
+/// 2. A scalar value tensor representing the position evaluation
+pub(crate) fn nn_eval(
+    model: &mut Session,
+    game: &OthelloGame,
+    player: Color,
+) -> Result<PolicyVectorWithEvaluation, Error> {
+    // Encode the board state into a (1, 2, 8, 8) tensor from the current player's
+    // perspective:
+    //   - Channel 0: current player's stones
+    //   - Channel 1: opponent's stones
+    let mut input: Tensor<f32> = Tensor::from_array(ndarray::Array4::<f32>::zeros((1, 2, 8, 8)))?;
+
+    // Build the input tensor by iterating over the board, and marking squares in correct channel
+    for row in 0..8 {
+        for col in 0..8 {
+            if let Some(c) = game.get(row, col) {
+                // Map stones to channels relative to the evaluating player
+                match (player, c) {
+                    (Color::White, Color::White) | (Color::Black, Color::Black) => {
+                        // Safe to dangerously cast here, because i64 can represent all of 0..8
+                        input[[0, 0, row as i64, col as i64]] = 1.0;
+                    }
+                    (Color::White, Color::Black) | (Color::Black, Color::White) => {
+                        // Safe to dangerously cast here, because i64 can represent all of 0..8
+                        input[[0, 1, row as i64, col as i64]] = 1.0;
+                    }
+                }
+            }
+        }
+    }
+
+    // Run neural network inference; expects policy and value outputs
+    let outputs = model.run(ort::inputs!(input))?;
+    let policy: Vec<f32> = outputs[0].try_extract_array::<f32>()?.iter().copied().collect();
+    let value: f32 = outputs[1].try_extract_scalar()?;
+
+    // Filter the policy to include only legal moves
+    let legal = game.legal_moves(player);
+    let mut move_probs = Vec::new();
+    for (row, col) in legal {
+        // Convert (row, col) into a flat policy index
+        let idx = row * 8 + col;
+        move_probs.push(((row, col), policy[idx]));
+    }
+
+    Ok((move_probs, value))
+}
