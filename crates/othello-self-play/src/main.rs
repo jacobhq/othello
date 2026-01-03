@@ -1,14 +1,14 @@
-use crate::mcts::{play_match, self_play};
 use crate::neural_net::load_model;
+use crate::self_play::{generate_self_play_data, Sample};
+use crate::write_data::write_samples;
 use clap::Parser;
 use ort::session::Session;
-use othello::othello_game::{Color, OthelloGame};
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
 
 mod mcts;
 mod neural_net;
+mod self_play;
+mod write_data;
 
 /// Self-play data generator for Othello
 #[derive(Parser, Debug)]
@@ -39,83 +39,41 @@ struct Args {
     offset: usize,
 }
 
-fn save_dataset_json(samples: &[(OthelloGame, Vec<f32>, f32, Color)], path: &str) -> Result<(), std::io::Error> {
-    let mut file = File::create(path)?;
-
-    file.write_all(b"[")?;
-
-    for (i, (game, policy, value, player)) in samples.iter().enumerate() {
-        let state = game.encode(*player);
-        let json_obj = format!(
-            "{{\"state\": {:?}, \"policy\": {:?}, \"value\": {}}}",
-            state, policy, value
-        );
-
-        file.write_all(json_obj.as_bytes())?;
-
-        if i < samples.len() - 1 {
-            file.write_all(b",\n")?;
-        }
-    }
-
-    file.write_all(b"]")?;
-    Ok(())
-}
-
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    // Load model if provided
+    let mut model_storage;
     let mut model: Option<&mut Session> = if let Some(ref path) = args.model {
         println!("Loading model from {:?}", path);
-        Some(&mut load_model(path.to_str().unwrap())?)
+        model_storage = load_model(path.to_str().unwrap())?;
+        Some(&mut model_storage)
     } else {
-        println!("No model provided, using random rollouts.");
+        println!("No model provided — using random rollouts");
         None
     };
 
     std::fs::create_dir_all(&args.out)?;
 
-    for g in 0..args.games {
-        let samples = self_play(args.sims, model.as_deref_mut());
-        let filename = args
-            .out
-            .join(format!("selfplay_data_{:05}.json", g + args.offset));
+    // Generate self-play data
+    let samples: Vec<Sample> =
+        generate_self_play_data(args.games, args.sims, model.as_deref_mut());
 
-        if let Err(e) = save_dataset_json(&samples, filename.to_str().unwrap()) {
-            eprintln!("Error saving game {}: {:?}", g + args.offset, e);
-        } else {
-            println!("Saved game {} to {:?}", g + args.offset, filename);
-        }
-    }
+    // Write dataset
+    let filename = args.out.join(format!(
+        "selfplay_{:05}_{:05}.bin",
+        args.offset,
+        args.offset + args.games
+    ));
 
+    write_samples(filename.to_str().unwrap(), &samples);
 
-    // === Evaluation step ===
-    if let Some(ref mut new_model) = model {
-        println!("Evaluating new model vs random...");
-        let mut score = 0.0;
-        let eval_games = 20;
-        for i in 0..eval_games {
-            score += play_match(args.sims, Some(new_model), None, i % 2 == 0);
-        }
-        println!(
-            "Win rate vs random: {:.1}%",
-            (score / eval_games as f32 + 1.0) / 2.0 * 100.0
-        );
-
-        if let Some(prev_path) = &args.prev_model {
-            println!("Loading previous model from {:?}", prev_path);
-            let mut prev_model = load_model(prev_path.to_str().unwrap())?;
-            let mut score_vs_old = 0.0;
-            for i in 0..eval_games {
-                score_vs_old +=
-                    play_match(args.sims, Some(new_model), Some(&mut prev_model), i % 2 == 0);
-            }
-            println!(
-                "Win rate vs previous: {:.1}%",
-                (score_vs_old / eval_games as f32 + 1.0) / 2.0 * 100.0
-            );
-        }
-    }
+    println!(
+        "Wrote {} samples from {} games to {:?}",
+        samples.len(),
+        args.games,
+        filename
+    );
 
     Ok(())
 }

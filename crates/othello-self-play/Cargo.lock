@@ -577,6 +577,7 @@ dependencies = [
  "ort",
  "othello",
  "rand",
+ "tempfile",
 ]
 
 [[package]]
