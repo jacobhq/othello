@@ -18,26 +18,29 @@
 //! The policy output is filtered to include only legal moves before being
 //! returned.
 
-use ort::session::{builder::GraphOptimizationLevel, Session};
-use ort::value::Tensor;
 use ort::Error;
+use ort::execution_providers::CUDAExecutionProvider;
+use ort::session::{Session, builder::GraphOptimizationLevel};
+use ort::value::Tensor;
 use othello::othello_game::{Color, OthelloGame};
 
 /// Standardised way to load the model during self-play iterations
 pub(crate) fn load_model(path: &str) -> Result<Session, Error> {
     let model = Session::builder()?
+        .with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()])?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(4)?
         .commit_from_file(path)?;
+
+    ort::init().with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()]).commit()?;
 
     Ok(model)
 }
 
 /// An element in the policy vector in form ((row, col), probability)
-type PolicyElement = ((usize, usize), f32);
+pub(crate) type PolicyElement = ((usize, usize), f32);
 
 /// A tuple containing the policy vector, and an evaluation scalar
-type PolicyVectorWithEvaluation = (Vec<PolicyElement>, f32);
+pub(crate) type PolicyVectorWithEvaluation = (Vec<PolicyElement>, f32);
 
 /// Evaluates an Othello position using a neural network.
 ///
@@ -102,8 +105,13 @@ pub(crate) fn nn_eval(
 
     // Run neural network inference; expects policy and value outputs
     let outputs = model.run(ort::inputs!(input))?;
-    let policy: Vec<f32> = outputs[0].try_extract_array::<f32>()?.iter().copied().collect();
-    let value: f32 = outputs[1].try_extract_scalar()?;
+    let policy: Vec<f32> = outputs[0]
+        .try_extract_array::<f32>()?
+        .iter()
+        .copied()
+        .collect();
+    let value_array = outputs[1].try_extract_tensor::<f32>()?;
+    let value = value_array.1[0]; // Access the first element of the [1, 1] shape
 
     // Filter the policy to include only legal moves
     let legal = game.legal_moves(player);

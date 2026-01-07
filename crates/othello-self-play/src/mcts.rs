@@ -6,7 +6,7 @@
 //!
 //! The search returns both a best move and a policy vector derived from
 //! visit counts, suitable for training a policy network.
-use crate::neural_net::nn_eval;
+use crate::neural_net::{nn_eval, PolicyElement};
 use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
@@ -43,6 +43,8 @@ struct MCTSNode {
     wins: f32,
     /// Legal moves from this position that have not yet been expanded.
     untried_actions: Vec<(usize, usize)>,
+    /// Neural network prediction
+    prior: f32,
 }
 
 impl MCTSNode {
@@ -66,6 +68,7 @@ impl MCTSNode {
             visits: 0,
             wins: 0.0,
             untried_actions,
+            prior: 0.0,
         }))
     }
 
@@ -93,11 +96,16 @@ impl MCTSNode {
             .max_by(|a, b| {
                 let a_borrow = a.borrow();
                 let b_borrow = b.borrow();
-                let ucb1_a = (a_borrow.wins / a_borrow.visits as f32)
-                    + c * (((n.visits as f32).ln() / a_borrow.visits as f32).sqrt());
-                let ucb1_b = (b_borrow.wins / b_borrow.visits as f32)
-                    + c * (((n.visits as f32).ln() / b_borrow.visits as f32).sqrt());
-                ucb1_a.partial_cmp(&ucb1_b).unwrap()
+
+                // Calculate Q-values (exploitation)
+                let q_a = if a_borrow.visits > 0 { a_borrow.wins / a_borrow.visits as f32 } else { 0.0 };
+                let q_b = if b_borrow.visits > 0 { b_borrow.wins / b_borrow.visits as f32 } else { 0.0 };
+
+                // PUCT formula: Q + C * P * (sqrt(Parent_N) / (1 + Child_N))
+                let u_a = c * a_borrow.prior * ((n.visits as f32).sqrt() / (1.0 + a_borrow.visits as f32));
+                let u_b = c * b_borrow.prior * ((n.visits as f32).sqrt() / (1.0 + b_borrow.visits as f32));
+
+                (q_a + u_a).partial_cmp(&(q_b + u_b)).unwrap()
             })
             .map(Rc::clone)
     }
@@ -109,6 +117,7 @@ impl MCTSNode {
     /// and returned.
     fn expand(node: &NodeRef) -> Option<NodeRef> {
         let mut n = node.borrow_mut();
+
         if let Some((row, col)) = n.untried_actions.pop() {
             let mut new_state = n.state;
             new_state.play(row, col, n.player);
@@ -126,6 +135,36 @@ impl MCTSNode {
             Some(child)
         } else {
             None
+        }
+    }
+
+    fn expand_all(node: &NodeRef, policy: &Vec<PolicyElement>) {
+        let mut n = node.borrow_mut();
+        let moves = n.state.legal_moves(n.player);
+        println!("{moves:?}");
+
+        for (row, col) in moves {
+            let prob = policy.iter().find(|&p| p.0 == (row, col)).unwrap(); // The prior P(s, a)
+
+            let mut next_state = n.state;
+            next_state.play(row, col, n.player);
+            let next_player = match n.player {
+                Color::White => Color::Black,
+                Color::Black => Color::White,
+            };
+
+            let child = Rc::new(RefCell::new(MCTSNode {
+                state: next_state,
+                player: next_player,
+                parent: Some(Rc::clone(node)),
+                children: Vec::new(),
+                action: Some((row, col)),
+                visits: 0,
+                wins: 0.0,
+                untried_actions: Vec::new(), // Not needed in expand_all approach
+                prior: prob.1,
+            }));
+            n.children.push(child);
         }
     }
 
@@ -276,21 +315,28 @@ pub(crate) fn mcts_search(
             }
         }
 
-        // 2 - Expansion: Expand if node not terminal, pattern match to get child
-        if !node.borrow().is_terminal()
-            && let Some(child) = MCTSNode::expand(&node)
-        {
-            node = child;
-        }
-
-        // 3 - Simulation: Evaluate leaf by:
-        // - neural net value prediction
-        // - random rollout if no neural net available
-        let result = if let Some(ref mut m) = model {
-            let (_policy, value) = nn_eval(m, &node.borrow().state, node.borrow().player).unwrap();
-            value
+        // 2, 3 - Evaluation & Expansion:
+        // If the node is terminal, evaluate based on game result.
+        // If not, use the Neural Network to get Value and Policy.
+        let result = if node.borrow().is_terminal() {
+            node.borrow().rollout() // Direct score if game is over
         } else {
-            node.borrow().rollout()
+            if let Some(ref mut m) = model {
+                // Get both Policy (for expansion) and Value (for backprop)
+                let (policy, value) = nn_eval(m, &node.borrow().state, node.borrow().player).expect("Error getting from the model");
+
+                // Expand all children at once using the NN policy
+                MCTSNode::expand_all(&node, &policy);
+
+                value
+            } else {
+                // Fallback for no-model: expand one and rollout (classic MCTS)
+                if let Some(child) = MCTSNode::expand(&node) {
+                    child.borrow().rollout()
+                } else {
+                    node.borrow().rollout()
+                }
+            }
         };
 
         // 4 - Backpropagation: Walk back up the tree and update visit counts and value estimates

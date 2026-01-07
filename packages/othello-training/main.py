@@ -193,7 +193,7 @@ def train(
 
 if __name__ == "__main__":
     dataset = OthelloDataset(
-        "../../crates/othello-self-play/data/selfplay_00000_00100.bin"
+        "../../crates/othello-self-play/data/selfplay_00000_00500.bin"
     )
     model = OthelloNet(num_blocks=10)
 
