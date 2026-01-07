@@ -1,5 +1,6 @@
 use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
+use tracing::info;
 use crate::mcts::mcts_search;
 
 /// Represents a single self-play game
@@ -86,7 +87,7 @@ pub fn generate_self_play_data(
         dataset.extend(samples);
 
         if g % 10 == 0 {
-            println!("Completed {} self-play games", g);
+            info!("Completed {} self-play games", g);
         }
     }
 

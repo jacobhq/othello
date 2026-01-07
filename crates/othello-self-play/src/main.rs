@@ -4,6 +4,7 @@ use crate::write_data::write_samples;
 use clap::Parser;
 use ort::session::Session;
 use std::path::PathBuf;
+use tracing::{info, warn};
 
 mod mcts;
 mod neural_net;
@@ -42,14 +43,16 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    tracing_subscriber::fmt::init();
+
     // Load model if provided
     let mut model_storage;
     let mut model: Option<&mut Session> = if let Some(ref path) = args.model {
-        println!("Loading model from {:?}", path);
+        info!("Loading model from {:?}", path);
         model_storage = load_model(path.to_str().unwrap())?;
         Some(&mut model_storage)
     } else {
-        println!("No model provided — using random rollouts");
+        warn!("No model provided — using random rollouts");
         None
     };
 
@@ -68,7 +71,7 @@ fn main() -> anyhow::Result<()> {
 
     write_samples(filename.to_str().unwrap(), &samples);
 
-    println!(
+    info!(
         "Wrote {} samples from {} games to {:?}",
         samples.len(),
         args.games,

@@ -141,7 +141,6 @@ impl MCTSNode {
     fn expand_all(node: &NodeRef, policy: &Vec<PolicyElement>) {
         let mut n = node.borrow_mut();
         let moves = n.state.legal_moves(n.player);
-        println!("{moves:?}");
 
         for (row, col) in moves {
             let prob = policy.iter().find(|&p| p.0 == (row, col)).unwrap(); // The prior P(s, a)
