@@ -82,7 +82,7 @@ impl MCTSNode {
         self.untried_actions.is_empty()
     }
 
-    /// Selects the child with the highest UCB1 score.
+    /// Selects the child with the highest PUCT score.
     ///
     /// The exploration constant `c` controls the exploration–exploitation
     /// tradeoff. Larger values favour exploration.
@@ -138,6 +138,15 @@ impl MCTSNode {
         }
     }
 
+    /// Expands all untried actions from this node, using neural net
+    /// policy vector.
+    ///
+    /// A new child node is created by applying one legal move to the
+    /// current game state. The child is added to this node's children
+    /// and returned.
+    ///
+    /// TODO: It should not be possible to call expand and expand all
+    /// TODO: on an instance of this struct
     fn expand_all(node: &NodeRef, policy: &Vec<PolicyElement>) {
         let mut n = node.borrow_mut();
         let moves = n.state.legal_moves(n.player);
