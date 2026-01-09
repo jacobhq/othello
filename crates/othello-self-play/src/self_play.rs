@@ -1,7 +1,11 @@
+use crate::mcts::mcts_search;
+use crate::neural_net::load_model;
 use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
-use tracing::info;
-use crate::mcts::mcts_search;
+use rayon::prelude::*;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tracing::{debug, info};
 
 /// Represents a single self-play game
 #[derive(Clone)]
@@ -11,11 +15,33 @@ pub struct Sample {
     pub value: f32,                // final game result
 }
 
-
-pub fn self_play_game(
-    iterations: u32,
-    mut model: Option<&mut Session>,
-) -> Vec<Sample> {
+/// Plays a single self-play game and collects training samples.
+///
+/// This function simulates a complete game of Othello using Monte Carlo Tree Search (MCTS)
+/// to select moves for both players. At each turn, the current game state is encoded and
+/// a training [`Sample`] is recorded containing the state, the MCTS policy, and a placeholder
+/// value. After the game ends, the final outcome is used to assign a value to each sample
+/// from the perspective of the player who made the move.
+///
+/// # Parameters
+///
+/// * `iterations` - The number of MCTS iterations to perform per move.
+/// * `model` - Optional mutable reference to a neural network [`Session`] used to guide
+///   the MCTS. If `None`, MCTS runs without a model.
+///
+/// # Returns
+///
+/// Returns a vector of [`Sample`] values corresponding to each move played in the game.
+/// The `value` field of each sample is assigned as:
+/// - `1.0` if the player eventually won the game
+/// - `-1.0` if the player eventually lost the game
+/// - `0.0` in the case of a draw
+///
+/// # Notes
+///
+/// * The provided model (if any) is mutated during search and reused across moves.
+/// * Passed turns (when no legal moves are available) are handled explicitly.
+pub fn self_play_game(iterations: u32, mut model: Option<&mut Session>) -> Vec<Sample> {
     let mut game = OthelloGame::new();
     let mut samples: Vec<(Sample, Color)> = Vec::new();
 
@@ -24,8 +50,7 @@ pub fn self_play_game(
 
         let encoded = game.encode(player);
 
-        let (best_move, policy) =
-            mcts_search(game, player, iterations, model.as_deref_mut());
+        let (best_move, policy) = mcts_search(game, player, iterations, model.as_deref_mut());
 
         // Store sample with placeholder value
         samples.push((
@@ -75,21 +100,60 @@ pub fn self_play_game(
     samples.into_iter().map(|(s, _)| s).collect()
 }
 
+/// Generates training samples by running multiple self-play games in parallel.
+///
+/// This function executes `games` self-play matches using Monte Carlo Tree Search (MCTS),
+/// optionally backed by a neural network model. Games are distributed across Rayon worker
+/// threads, and if a model path is provided, the model is loaded once per worker thread
+/// to avoid repeated initialisation overhead.
+///
+/// # Parameters
+///
+/// * `games` - The number of self-play games to run.
+/// * `mcts_iters` - The number of MCTS iterations to perform per move.
+/// * `model_path` - Optional path to a serialized model used to guide MCTS. If `None`,
+///   games are played without a model.
+///
+/// # Returns
+///
+/// Returns a vector of [`Sample`] values collected from all self-play games on success.
+/// If an error occurs during execution, an [`anyhow::Error`] is returned.
+///
+/// # Parallelism
+///
+/// This function uses Rayon to parallelise self-play across worker threads. Each worker
+/// loads its own copy of the model (if provided) and reuses it for all games assigned
+/// to that thread.
 pub fn generate_self_play_data(
     games: usize,
     mcts_iters: u32,
-    mut model: Option<&mut Session>,
-) -> Vec<Sample> {
-    let mut dataset = Vec::new();
+    model_path: Option<PathBuf>,
+) -> anyhow::Result<Vec<Sample>> {
+    let samples = (0..games)
+        .into_par_iter()
+        .map_init(
+            || {
+                // This runs ONCE per Rayon worker thread
+                match &model_path {
+                    Some(path) => {
+                        info!("Loading model on worker from {:?}", path);
+                        Some(load_model(path.to_str().unwrap()).unwrap())
+                    }
+                    None => None,
+                }
+            },
+            |model, g| {
+                debug!("Starting self-play game {}", g);
 
-    for g in 0..games {
-        let samples = self_play_game(mcts_iters, model.as_deref_mut());
-        dataset.extend(samples);
+                let samples = self_play_game(mcts_iters, model.as_mut());
 
-        if g % 10 == 0 {
-            info!("Completed {} self-play games", g);
-        }
-    }
+                debug!("Completed {} self-play games", g);
 
-    dataset
+                samples
+            },
+        )
+        .flatten()
+        .collect();
+
+    Ok(samples)
 }

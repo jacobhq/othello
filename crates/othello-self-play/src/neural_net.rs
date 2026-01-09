@@ -27,6 +27,8 @@ use othello::othello_game::{Color, OthelloGame};
 /// Standardised way to load the model during self-play iterations
 pub(crate) fn load_model(path: &str) -> Result<Session, Error> {
     let model = Session::builder()?
+        .with_intra_threads(1)?
+        .with_inter_threads(1)?
         .with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()])?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
         .commit_from_file(path)?;

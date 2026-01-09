@@ -45,22 +45,11 @@ fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::fmt::init();
 
-    // Load model if provided
-    let mut model_storage;
-    let mut model: Option<&mut Session> = if let Some(ref path) = args.model {
-        info!("Loading model from {:?}", path);
-        model_storage = load_model(path.to_str().unwrap())?;
-        Some(&mut model_storage)
-    } else {
-        warn!("No model provided — using random rollouts");
-        None
-    };
-
     std::fs::create_dir_all(&args.out)?;
 
     // Generate self-play data
     let samples: Vec<Sample> =
-        generate_self_play_data(args.games, args.sims, model.as_deref_mut());
+        generate_self_play_data(args.games, args.sims, args.model).expect("Error generating self-play data");
 
     // Write dataset
     let filename = args.out.join(format!(
