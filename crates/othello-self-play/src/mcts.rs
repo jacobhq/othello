@@ -12,6 +12,7 @@ use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
 use std::cell::RefCell;
 use std::rc::Rc;
+use crate::distr::{dirichlet};
 
 /// Shared, mutable reference to an `MCTSNode`.
 ///
@@ -335,6 +336,11 @@ pub(crate) fn mcts_search(
 
                 // Expand all children at once using the NN policy
                 MCTSNode::expand_all(&node, &policy);
+
+                // Add Dirichlet noise to root node
+                if Rc::ptr_eq(&node, &root) {
+                    add_dirichlet_noise_to_root(&node, 0.3, 0.25);
+                }
 
                 value
             } else {
@@ -740,6 +746,40 @@ mod tests {
 
         // Rollout values should always be within the valid range [-1, 1]
         assert!(value >= -1.0 && value <= 1.0);
+    }
+}
+
+/// Adds Dirichlet exploration noise to the priors of the root node.
+///
+/// This function modifies the prior probability `P(s, a)` of each
+/// child of the root according to:
+///
+/// ```text
+/// P'(s, a) = (1 - ε) * P(s, a) + ε * Dirichlet(α)
+/// ```
+///
+/// This is the standard AlphaZero exploration mechanism and should
+/// be applied:
+/// - **only at the root**
+/// - **only once per search**
+/// - **before any visit counts are accumulated**
+///
+/// # Arguments
+/// * `root` - The root node of the MCTS tree
+/// * `alpha` - Dirichlet concentration parameter (e.g. `0.3`)
+/// * `epsilon` - Mixing factor controlling noise strength (e.g. `0.25`)
+fn add_dirichlet_noise_to_root(root: &NodeRef, alpha: f32, epsilon: f32) {
+    let mut root_borrow = root.borrow_mut();
+    let n = root_borrow.children.len();
+    if n == 0 {
+        return;
+    }
+
+    let noise = dirichlet(alpha, n);
+
+    for (child, &n_i) in root_borrow.children.iter().zip(noise.iter()) {
+        let mut c = child.borrow_mut();
+        c.prior = (1.0 - epsilon) * c.prior + epsilon * n_i;
     }
 }
 
