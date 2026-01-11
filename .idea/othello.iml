@@ -6,13 +6,15 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/othello/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/othello-wasm/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/othello-api/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/othello-self-play/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-demo/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-wasm/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-api/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/crates/othello-self-play/target" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="3.14 WSL (Ubuntu-24.04): (/home/jacob/code/othello/packages/othello-training/.venv/bin/python3)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
