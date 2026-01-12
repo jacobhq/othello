@@ -1,93 +1,58 @@
-use std::io::{Write, stdin, stdout};
-use othello::othello_game::{Color, OthelloError, OthelloGame};
+mod pass_and_play;
+mod neural_net;
+
+use std::path::PathBuf;
+use crate::pass_and_play::pass_and_play;
+use clap::{Parser, ValueEnum};
+use othello::othello_game::{Color, OthelloGame};
+use serde::Deserialize;
+use crate::neural_net::neural_net;
+
+/// Demo version of Othello to test new features before they are released to the website
+#[derive(Parser)]
+#[command(version, about)]
+struct Args {
+    /// Select the game mode to play in
+    #[arg(short, long)]
+    game_mode: GameMode,
+    /// Selects which color is human (only used in neural net mode)
+    #[arg(short, long, value_enum, default_value_t=HumanColor::Black)]
+    color: HumanColor,
+    /// Location of the model relative to the current working directory (only used in neural net mode)
+    #[arg(short, long, default_value = "latest.onnx")]
+    model: PathBuf
+}
+
+/// Represents the type of game to play
+#[derive(Clone, ValueEnum, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+enum GameMode {
+    PassAndPlay,
+    #[default]
+    NeuralNet,
+}
+
+/// Selects which color is human
+#[derive(Clone, ValueEnum, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+enum HumanColor {
+    #[default]
+    Black,
+    White,
+}
 
 fn main() {
-    let mut game = OthelloGame::new();
+    let args = Args::parse();
+    let game = OthelloGame::new();
 
-    loop {
-        if game.game_over() {
-            println!("Game over!");
-            println!("{}", game);
-            let (w, b) = game.score();
-            println!("Final score — ● White: {}, ○ Black: {}", w, b);
-            break;
-        }
+    let human_color = match args.color {
+        HumanColor::Black => Color::Black,
+        HumanColor::White => Color::White
+    };
 
-
-        println!("It is {}'s turn.", game.current_turn);
-        print!("{}", game);
-
-
-        let legal = game.legal_moves(game.current_turn);
-        if legal.is_empty() {
-            // No legal moves for current player — announce and pass
-            println!("{} has no legal moves and must pass.", game.current_turn);
-            let next = match game.current_turn {
-                Color::Black => Color::White,
-                Color::White => Color::Black,
-            };
-            game.current_turn = next;
-            continue;
-        }
-
-
-        // Show legal moves as a hint
-        print!("Legal moves: ");
-        for (r, c) in &legal {
-            print!("({} {}) ", r, c);
-        }
-        println!();
-
-
-        println!("Enter your next move (in form: row col), or 'quit' to exit.");
-        stdout().flush().map_err(|_| ()).unwrap();
-
-
-        let mut input = String::new();
-        stdin().read_line(&mut input).map_err(|_| ()).unwrap();
-        let input = input.trim();
-
-
-        if input.eq_ignore_ascii_case("quit") || input.eq_ignore_ascii_case("exit") {
-            println!("Quitting game.");
-            break;
-        }
-
-
-        let mut parts = input.split_whitespace();
-        let row = match parts.next().and_then(|x| x.parse::<usize>().ok()) {
-            Some(v) if v < 8 => v,
-            _ => {
-                println!("Invalid row (must be 0..7). Try again.");
-                continue;
-            }
-        };
-        let col = match parts.next().and_then(|y| y.parse::<usize>().ok()) {
-            Some(v) if v < 8 => v,
-            _ => {
-                println!("Invalid column (must be 0..7). Try again.");
-                continue;
-            }
-        };
-
-
-        match game.play(row, col, game.current_turn) {
-            Ok(()) => {
-                // move played successfully; loop continues
-            }
-            Err(OthelloError::NoMovesForPlayer) => {
-                // `play` already switched the turn when it returned this error.
-                println!("No moves for that player — turn switched to {}.", game.current_turn);
-                continue;
-            }
-            Err(OthelloError::NotYourTurn) => {
-                println!("It's not your turn. Please enter a move for {}.", game.current_turn);
-                continue;
-            }
-            Err(OthelloError::IllegalMove) => {
-                println!("Illegal move. That move isn't valid; try again.");
-                continue;
-            }
-        }
+    // Call appropriate function for arg mode
+    match args.game_mode {
+        GameMode::PassAndPlay => pass_and_play(game),
+        GameMode::NeuralNet => neural_net(game, human_color, args.model),
     }
 }
