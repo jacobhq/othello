@@ -4,9 +4,10 @@ use ort::value::Tensor;
 use ort::Error;
 use othello::othello_game::{Color, OthelloError, OthelloGame};
 use std::io::{stdin, stdout, Write};
+use std::path::PathBuf;
 
 /// Standardised way to load the model during self-play iterations
-pub(crate) fn load_model(path: &str) -> Result<Session, Error> {
+pub(crate) fn load_model(path: PathBuf) -> Result<Session, Error> {
     let model = Session::builder()?
         .with_intra_threads(1)?
         .with_inter_threads(1)?
@@ -80,9 +81,8 @@ pub(crate) fn nn_eval(
 }
 
 /// Human vs neural network game mode
-pub(crate) fn neural_net(mut game: OthelloGame) {
-    let human_color = Color::Black;
-    let mut session = load_model("latest.onnx").unwrap();
+pub(crate) fn neural_net(mut game: OthelloGame, human_color: Color, model: PathBuf) {
+    let mut session = load_model(model).unwrap();
 
     // Main game loop
     loop {
