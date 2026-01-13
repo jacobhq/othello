@@ -147,7 +147,7 @@ pub fn generate_self_play_data(
 
                 let samples = self_play_game(mcts_iters, model.as_mut());
 
-                debug!("Completed {} self-play games", g);
+                debug!("Finished self-play game {}", g);
 
                 samples
             },

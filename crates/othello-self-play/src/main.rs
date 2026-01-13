@@ -39,6 +39,10 @@ struct Args {
     /// Starting index for file naming
     #[arg(long, default_value_t = 0)]
     offset: usize,
+
+    /// File name prefix
+    #[arg(long, short)]
+    prefix: Option<String>
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,8 +57,11 @@ fn main() -> anyhow::Result<()> {
         generate_self_play_data(args.games, args.sims, args.model).expect("Error generating self-play data");
 
     // Write dataset
+    let prefix = args.prefix.unwrap_or("".to_string());
     let filename = args.out.join(format!(
-        "selfplay_{:05}_{:05}.bin",
+        "{}{}selfplay_{:05}_{:05}.bin",
+        prefix,
+        if prefix.is_empty() { "" } else { "_" },
         args.offset,
         args.offset + args.games
     ));

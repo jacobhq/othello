@@ -55,7 +55,8 @@ fn main() {
 
         // Format the dataset path
         let dataset_path = format!(
-            "../othello-self-play/data/selfplay_{:05}_{:05}.bin",
+            "../othello-self-play/data/{}_selfplay_{:05}_{:05}.bin",
+            &args.prefix,
             base_offset,
             base_offset + args.self_play_games
         );
@@ -65,11 +66,12 @@ fn main() {
         // Run the self-play process, passing the necessary arguments
         let mut self_play = Command::new("../othello-self-play/target/release/othello-self-play");
         self_play
-            .env("RUST_LOG", "DEBUG")
+            .env("RUST_LOG", "debug,ort=warn")
             .env("LD_LIBRARY_PATH", "../othello-self-play/target/release")
             .arg("--out").arg("../othello-self-play/data")
             .arg("--offset").arg(base_offset.to_string())
-            .arg("--games").arg(args.self_play_games.to_string());
+            .arg("--games").arg(args.self_play_games.to_string())
+            .arg("--prefix").arg(&args.prefix);
 
         if let Some(s) = args.self_play_sims {
             self_play.arg("--sims").arg(s.to_string());
@@ -79,7 +81,7 @@ fn main() {
         if i > 0 {
             let model_in = format!(
                 "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
-                args.prefix,
+                &args.prefix,
                 model_idx,
                 args.model_epochs.unwrap_or(10)
             );
