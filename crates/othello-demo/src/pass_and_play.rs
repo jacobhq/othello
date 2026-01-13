@@ -1,5 +1,5 @@
+use othello::othello_game::{OthelloError, OthelloGame};
 use std::io::{stdin, stdout, Write};
-use othello::othello_game::{Color, OthelloError, OthelloGame};
 
 pub(crate) fn pass_and_play(mut game: OthelloGame) {
     loop {
@@ -18,13 +18,10 @@ pub(crate) fn pass_and_play(mut game: OthelloGame) {
 
         let legal = game.legal_moves(game.current_turn);
         if legal.is_empty() {
-            // No legal moves for current player — announce and pass
-            println!("{} has no legal moves and must pass.", game.current_turn);
-            let next = match game.current_turn {
-                Color::Black => Color::White,
-                Color::White => Color::Black,
-            };
-            game.current_turn = next;
+            // Trigger the internal turn swap logic by calling play with dummy coords.
+            // The implementation of play handles the swap and returns NoMovesForPlayer.
+            let _ = game.play(0, 0, game.current_turn);
+
             continue;
         }
 
