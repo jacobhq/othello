@@ -1,3 +1,4 @@
+import argparse
 import struct
 import numpy as np
 import torch
@@ -125,7 +126,7 @@ class OthelloNet(nn.Module):
         return p, v
 
 
-def export_onnx(model, epoch, device):
+def export_onnx(model, epoch, device, prefix):
     model.eval()
 
     dummy_input = torch.zeros(1, 2, 8, 8, device=device)
@@ -133,7 +134,7 @@ def export_onnx(model, epoch, device):
     torch.onnx.export(
         model,
         dummy_input,
-        f"othello_net_epoch_{epoch:03d}.onnx",
+        f"{prefix}_othello_net_epoch_{epoch:03d}.onnx",
         input_names=["board"],
         output_names=["policy", "value"],
         dynamic_axes={
@@ -151,6 +152,7 @@ def export_onnx(model, epoch, device):
 def train(
     model,
     dataset,
+    prefix,
     epochs=10,
     batch_size=256,
     lr=1e-3,
@@ -188,13 +190,29 @@ def train(
 
         print(f"Epoch {epoch + 1}: loss={total_loss / len(loader):.4f}")
 
-        export_onnx(model, epoch + 1, device)
+        export_onnx(model, epoch + 1, device, prefix)
 
 
 if __name__ == "__main__":
-    dataset = OthelloDataset(
-        "../../crates/othello-self-play/data/selfplay_00500_01000.bin"
-    )
-    model = OthelloNet(num_blocks=10)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", required=True)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--res-blocks", type=int, default=10)
+    parser.add_argument("--out-prefix", type=str, default="othello_net")
 
-    train(model, dataset, epochs=10, batch_size=256, lr=1e-3, device="cuda")
+    args = parser.parse_args()
+
+    dataset = OthelloDataset(args.data)
+    model = OthelloNet(num_blocks=args.res_blocks)
+
+    train(
+        model,
+        dataset,
+        prefix=args.out_prefix,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        device="cuda"
+    )
