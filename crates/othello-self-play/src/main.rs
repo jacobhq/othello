@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
         args.offset + args.games
     ));
 
-    write_samples(filename.to_str().unwrap(), &samples);
+    write_samples(&filename, &samples);
 
     info!(
         "Wrote {} samples from {} games to {:?}",
