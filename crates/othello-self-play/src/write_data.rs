@@ -61,7 +61,7 @@
 //! back raw bytes and decoding each field manually, ensuring that any
 //! future changes to the format are caught immediately.
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use crate::self_play::Sample;
 
@@ -106,6 +106,7 @@ use crate::self_play::Sample;
 ///   writing large datasets may want to wrap the file in a `BufWriter`.
 pub fn write_samples(path: &PathBuf, samples: &[Sample]) {
     let mut f = File::create(path).unwrap();
+    let mut f = BufWriter::new(f);
 
     // Magic: "OTHL"
     f.write_all(&0x4F54484Cu32.to_le_bytes()).unwrap();

@@ -1,5 +1,6 @@
 import argparse
 import struct
+import time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,15 +10,23 @@ from torch.utils.data import Dataset, DataLoader
 
 class OthelloDataset(Dataset):
     def __init__(self, path):
+        print(f"Opening dataset: {path}")
+        start_time = time.time()
+        
         with open(path, "rb") as f:
             magic, version, n = struct.unpack("<III", f.read(12))
             assert magic == 0x4F54484C  # "OTHL"
             assert version == 1
 
+            print(f"Loading {n:,} samples into memory...")
+
             self.states = np.zeros((n, 2, 8, 8), dtype=np.float32)
             self.policies = np.zeros((n, 64), dtype=np.float32)
             self.values = np.zeros((n,), dtype=np.float32)
 
+            # Show progress every 10% of samples
+            checkpoint = max(1, n // 10)
+            
             for i in range(n):
                 self.states[i] = (
                     np.frombuffer(f.read(2 * 8 * 8 * 4), dtype=np.int32)
@@ -26,6 +35,13 @@ class OthelloDataset(Dataset):
                 )
                 self.policies[i] = np.frombuffer(f.read(64 * 4), dtype=np.float32)
                 self.values[i] = struct.unpack("<f", f.read(4))[0]
+                
+                if (i + 1) % checkpoint == 0:
+                    pct = (i + 1) / n * 100
+                    print(f"  Loaded {i + 1:,} / {n:,} samples ({pct:.0f}%)")
+        
+        elapsed = time.time() - start_time
+        print(f"Dataset loaded in {elapsed:.1f}s ({n/elapsed:.0f} samples/sec)")
 
     def __len__(self):
         return len(self.values)
