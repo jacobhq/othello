@@ -40,6 +40,12 @@ struct Args {
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    let python_path = "../../packages/othello-training/.venv/Scripts/python.exe";
+
+    #[cfg(not(target_os = "windows"))]
+    let python_path = "../../packages/othello-training/.venv/bin/python3";
+
     // Parse the arguments
     let args = Args::parse();
 
@@ -99,7 +105,7 @@ fn main() {
         );
 
         // Run the training process, using python from uv
-        let mut train = Command::new("../../packages/othello-training/.venv/bin/python3");
+        let mut train = Command::new(python_path);
         train
             .arg("../../packages/othello-training/main.py")
             .arg("--data").arg(&dataset_path)
