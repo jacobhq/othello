@@ -57,6 +57,8 @@ fn main() -> anyhow::Result<()> {
     let samples: Vec<Sample> =
         generate_self_play_data(args.games, args.sims, args.model).expect("Error generating self-play data");
 
+    info!("Generated {} samples", samples.len());
+
     // Write dataset
     let prefix = args.prefix.unwrap_or("".to_string());
     let filename = args.out.join(format!(
