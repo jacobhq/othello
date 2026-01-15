@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info};
+use crate::symmetry::get_symmetries;
 
 /// Represents a single self-play game
 #[derive(Clone)]
@@ -150,6 +151,9 @@ pub fn generate_self_play_data(
                 debug!("Finished self-play game {}", g);
 
                 samples
+                    .into_iter()
+                    .flat_map(get_symmetries)
+                    .collect::<Vec<Sample>>()
             },
         )
         .flatten()

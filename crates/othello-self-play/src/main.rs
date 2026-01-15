@@ -11,6 +11,7 @@ mod neural_net;
 mod self_play;
 mod write_data;
 mod distr;
+mod symmetry;
 
 /// Self-play data generator for Othello
 #[derive(Parser, Debug)]
