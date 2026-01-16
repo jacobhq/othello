@@ -61,7 +61,8 @@
 //! back raw bytes and decoding each field manually, ensuring that any
 //! future changes to the format are caught immediately.
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use crate::self_play::Sample;
 
 /// Writes a collection of self-play samples to a binary file in a fixed,
@@ -103,8 +104,9 @@ use crate::self_play::Sample;
 ///   as it allows readers to validate file integrity.
 /// * This function performs no buffering beyond the OS defaults; callers
 ///   writing large datasets may want to wrap the file in a `BufWriter`.
-pub fn write_samples(path: &str, samples: &[Sample]) {
-    let mut f = File::create(path).unwrap();
+pub fn write_samples(path: &PathBuf, samples: &[Sample]) {
+    let f = File::create(path).unwrap();
+    let mut f = BufWriter::new(f);
 
     // Magic: "OTHL"
     f.write_all(&0x4F54484Cu32.to_le_bytes()).unwrap();
@@ -202,9 +204,9 @@ mod tests {
         let samples = vec![sample1.clone(), sample2.clone()];
 
         let file = NamedTempFile::new().unwrap();
-        let path = file.path().to_str().unwrap();
+        let path = file.path().to_path_buf();
 
-        write_samples(path, &samples);
+        write_samples(&path, &samples);
 
         let bytes = fs::read(path).unwrap();
         let mut offset = 0;

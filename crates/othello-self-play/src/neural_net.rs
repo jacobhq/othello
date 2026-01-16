@@ -18,22 +18,20 @@
 //! The policy output is filtered to include only legal moves before being
 //! returned.
 
-use ort::Error;
-use ort::execution_providers::CUDAExecutionProvider;
-use ort::session::{Session, builder::GraphOptimizationLevel};
+use ort::ep::CUDA;
+use ort::session::Session;
 use ort::value::Tensor;
+use ort::Error;
 use othello::othello_game::{Color, OthelloGame};
 
 /// Standardised way to load the model during self-play iterations
 pub(crate) fn load_model(path: &str) -> Result<Session, Error> {
+    ort::init().with_execution_providers([CUDA::default().build().error_on_failure()]).commit();
+
     let model = Session::builder()?
         .with_intra_threads(1)?
         .with_inter_threads(1)?
-        .with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()])?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
         .commit_from_file(path)?;
-
-    ort::init().with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()]).commit()?;
 
     Ok(model)
 }

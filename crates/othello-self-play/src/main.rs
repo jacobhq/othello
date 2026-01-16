@@ -1,16 +1,15 @@
-use crate::neural_net::load_model;
 use crate::self_play::{generate_self_play_data, Sample};
 use crate::write_data::write_samples;
 use clap::Parser;
-use ort::session::Session;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::info;
 
 mod mcts;
 mod neural_net;
 mod self_play;
 mod write_data;
 mod distr;
+mod symmetry;
 
 /// Self-play data generator for Othello
 #[derive(Parser, Debug)]
@@ -39,6 +38,10 @@ struct Args {
     /// Starting index for file naming
     #[arg(long, default_value_t = 0)]
     offset: usize,
+
+    /// File name prefix
+    #[arg(long, short)]
+    prefix: Option<String>
 }
 
 fn main() -> anyhow::Result<()> {
@@ -48,18 +51,24 @@ fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&args.out)?;
 
+    let prefix = args.prefix.unwrap_or("".to_string());
+
     // Generate self-play data
     let samples: Vec<Sample> =
-        generate_self_play_data(args.games, args.sims, args.model).expect("Error generating self-play data");
+        generate_self_play_data(&prefix, args.games, args.sims, args.model).expect("Error generating self-play data");
+
+    info!("Generated {} samples", samples.len());
 
     // Write dataset
     let filename = args.out.join(format!(
-        "selfplay_{:05}_{:05}.bin",
+        "{}{}selfplay_{:05}_{:05}.bin",
+        prefix,
+        if prefix.is_empty() { "" } else { "_" },
         args.offset,
         args.offset + args.games
     ));
 
-    write_samples(filename.to_str().unwrap(), &samples);
+    write_samples(&filename, &samples);
 
     info!(
         "Wrote {} samples from {} games to {:?}",

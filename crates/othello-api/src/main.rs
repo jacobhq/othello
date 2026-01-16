@@ -1,4 +1,3 @@
-mod analytics;
 mod auth;
 mod csrf;
 mod db;
@@ -23,7 +22,6 @@ use tracing_subscriber::{EnvFilter, Registry};
 use tracing_subscriber::prelude::*;
 
 const FRONTEND_URL: &str = env_or_dotenv!("FRONTEND_URL");
-const POSTHOG_API_KEY: &str = env_or_dotenv!("POSTHOG_API_KEY");
 const AXIOM_DATASET: &str = env_or_dotenv!("AXIOM_DATASET");
 const AXIOM_API_TOKEN: &str = env_or_dotenv!("AXIOM_API_TOKEN");
 

@@ -6,13 +6,13 @@
 //!
 //! The search returns both a best move and a policy vector derived from
 //! visit counts, suitable for training a policy network.
-use crate::neural_net::{nn_eval, PolicyElement};
+use crate::distr::dirichlet;
+use crate::neural_net::{PolicyElement, nn_eval};
 use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::distr::{dirichlet};
 
 /// Shared, mutable reference to an `MCTSNode`.
 ///
@@ -99,12 +99,24 @@ impl MCTSNode {
                 let b_borrow = b.borrow();
 
                 // Calculate Q-values (exploitation)
-                let q_a = if a_borrow.visits > 0 { a_borrow.wins / a_borrow.visits as f32 } else { 0.0 };
-                let q_b = if b_borrow.visits > 0 { b_borrow.wins / b_borrow.visits as f32 } else { 0.0 };
+                let q_a = if a_borrow.visits > 0 {
+                    a_borrow.wins / a_borrow.visits as f32
+                } else {
+                    0.0
+                };
+                let q_b = if b_borrow.visits > 0 {
+                    b_borrow.wins / b_borrow.visits as f32
+                } else {
+                    0.0
+                };
 
                 // PUCT formula: Q + C * P * (sqrt(Parent_N) / (1 + Child_N))
-                let u_a = c * a_borrow.prior * ((n.visits as f32).sqrt() / (1.0 + a_borrow.visits as f32));
-                let u_b = c * b_borrow.prior * ((n.visits as f32).sqrt() / (1.0 + b_borrow.visits as f32));
+                let u_a = c
+                    * a_borrow.prior
+                    * ((n.visits as f32).sqrt() / (1.0 + a_borrow.visits as f32));
+                let u_b = c
+                    * b_borrow.prior
+                    * ((n.visits as f32).sqrt() / (1.0 + b_borrow.visits as f32));
 
                 (q_a + u_a).partial_cmp(&(q_b + u_b)).unwrap()
             })
@@ -148,7 +160,7 @@ impl MCTSNode {
     ///
     /// TODO: It should not be possible to call expand and expand all
     /// TODO: on an instance of this struct
-    fn expand_all(node: &NodeRef, policy: &Vec<PolicyElement>) {
+    fn expand_all(node: &NodeRef, policy: &[PolicyElement]) {
         let mut n = node.borrow_mut();
         let moves = n.state.legal_moves(n.player);
 
@@ -297,12 +309,12 @@ pub(crate) fn mcts_search(
     player: Color,
     iterations: u32,
     mut model: Option<&mut Session>,
-) -> (Option<(usize, usize)>, Vec<f32>) {
+) -> (Option<(usize, usize)>, Vec<f32>, Option<(f32, f32, f32)>) {
     let root = MCTSNode::new(root_state, player, None, None);
 
     // No legal moves, policy vec empty
     if root.borrow().untried_actions.is_empty() {
-        return (None, vec![0.0; 64]);
+        return (None, vec![0.0; 64], None);
     }
 
     for _ in 0..iterations {
@@ -329,27 +341,26 @@ pub(crate) fn mcts_search(
         // If not, use the Neural Network to get Value and Policy.
         let result = if node.borrow().is_terminal() {
             node.borrow().rollout() // Direct score if game is over
+        } else if let Some(ref mut m) = model {
+            // Get both Policy (for expansion) and Value (for backprop)
+            let (policy, value) = nn_eval(m, &node.borrow().state, node.borrow().player)
+                .expect("Error getting from the model");
+
+            // Expand all children at once using the NN policy
+            MCTSNode::expand_all(&node, &policy);
+
+            // Add Dirichlet noise to root node
+            if Rc::ptr_eq(&node, &root) {
+                add_dirichlet_noise_to_root(&node, 0.3, 0.25);
+            }
+
+            value
         } else {
-            if let Some(ref mut m) = model {
-                // Get both Policy (for expansion) and Value (for backprop)
-                let (policy, value) = nn_eval(m, &node.borrow().state, node.borrow().player).expect("Error getting from the model");
-
-                // Expand all children at once using the NN policy
-                MCTSNode::expand_all(&node, &policy);
-
-                // Add Dirichlet noise to root node
-                if Rc::ptr_eq(&node, &root) {
-                    add_dirichlet_noise_to_root(&node, 0.3, 0.25);
-                }
-
-                value
+            // Fallback for no-model: expand one and rollout (classic MCTS)
+            if let Some(child) = MCTSNode::expand(&node) {
+                child.borrow().rollout()
             } else {
-                // Fallback for no-model: expand one and rollout (classic MCTS)
-                if let Some(child) = MCTSNode::expand(&node) {
-                    child.borrow().rollout()
-                } else {
-                    node.borrow().rollout()
-                }
+                node.borrow().rollout()
             }
         };
 
@@ -361,7 +372,87 @@ pub(crate) fn mcts_search(
     let policy = root.borrow().policy_vector();
     let best_move = MCTSNode::best_child(&root, 0.0).and_then(|n| n.borrow().action);
 
-    (best_move, policy)
+    let stats = Some(compute_root_stats(&root, best_move));
+
+    (best_move, policy, stats)
+}
+
+fn compute_root_stats(root: &NodeRef, best_move: Option<(usize, usize)>) -> (f32, f32, f32) {
+    let root_borrow = root.borrow();
+
+    let visits: Vec<f32> = root_borrow
+        .children
+        .iter()
+        .map(|c| c.borrow().visits as f32)
+        .collect();
+
+    let total: f32 = visits.iter().sum();
+    if total == 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    // Entropy
+    let entropy = visits.iter().fold(0.0, |acc, &v| {
+        let p = v / total;
+        if p > 0.0 { acc - p * p.ln() } else { acc }
+    });
+
+    // Max visit fraction
+    let max_visit_frac = visits.iter().cloned().fold(0.0, f32::max) / total;
+
+    // Q of selected move
+    let q_selected = best_move
+        .and_then(|mv| {
+            root_borrow
+                .children
+                .iter()
+                .find(|c| c.borrow().action == Some(mv))
+        })
+        .map(|c| {
+            let c = c.borrow();
+            if c.visits > 0 {
+                c.wins / c.visits as f32
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+
+    (entropy, max_visit_frac, q_selected)
+}
+
+/// Adds Dirichlet exploration noise to the priors of the root node.
+///
+/// This function modifies the prior probability `P(s, a)` of each
+/// child of the root according to:
+///
+/// ```text
+/// P'(s, a) = (1 - ε) * P(s, a) + ε * Dirichlet(α)
+/// ```
+///
+/// This is the standard AlphaZero exploration mechanism and should
+/// be applied:
+/// - **only at the root**
+/// - **only once per search**
+/// - **before any visit counts are accumulated**
+///
+/// # Arguments
+/// * `root` - The root node of the MCTS tree
+/// * `alpha` - Dirichlet concentration parameter (e.g. `0.3`)
+/// * `epsilon` - Mixing factor controlling noise strength (e.g. `0.25`)
+fn add_dirichlet_noise_to_root(root: &NodeRef, alpha: f32, epsilon: f32) {
+    let root_borrow = root.borrow_mut();
+    let n = root_borrow.children.len();
+    if n == 0 {
+        return;
+    }
+
+    let noise = dirichlet(alpha, n);
+
+    for (child, &n_i) in root_borrow.children.iter().zip(noise.iter()) {
+        let mut c = child.borrow_mut();
+        c.prior = (1.0 - epsilon) * c.prior + epsilon * n_i;
+    }
 }
 
 /// Unit tests for the Monte Carlo Tree Search implementation.
@@ -518,7 +609,7 @@ mod tests {
         let game = initial_game();
 
         // Run a full MCTS search from the initial game position
-        let (best_move, policy) = mcts_search(game, Color::Black, 50, None);
+        let (best_move, policy, _) = mcts_search(game, Color::Black, 50, None);
 
         // Policy vector must always be length 64
         assert_eq!(policy.len(), 64);
@@ -557,7 +648,7 @@ mod tests {
             };
         }
 
-        let (best_move, policy) = mcts_search(game, player, 10, None);
+        let (best_move, policy, _) = mcts_search(game, player, 10, None);
 
         // When no moves are available, MCTS should return no move
         // and an empty policy vector
@@ -586,7 +677,7 @@ mod tests {
             };
         }
 
-        let (best_move, policy) = mcts_search(game, player, 20, None);
+        let (best_move, policy, _) = mcts_search(game, player, 20, None);
 
         // The policy vector should still be the correct size
         // but contain no probabilities for any moves
@@ -734,7 +825,7 @@ mod tests {
                 continue;
             }
             let (r, c) = moves[0];
-            game.play(r, c, player);
+            game.play(r, c, player).unwrap();
             player = match player {
                 Color::Black => Color::White,
                 Color::White => Color::Black,
@@ -745,140 +836,6 @@ mod tests {
         let value = node.borrow().rollout();
 
         // Rollout values should always be within the valid range [-1, 1]
-        assert!(value >= -1.0 && value <= 1.0);
-    }
-}
-
-/// Adds Dirichlet exploration noise to the priors of the root node.
-///
-/// This function modifies the prior probability `P(s, a)` of each
-/// child of the root according to:
-///
-/// ```text
-/// P'(s, a) = (1 - ε) * P(s, a) + ε * Dirichlet(α)
-/// ```
-///
-/// This is the standard AlphaZero exploration mechanism and should
-/// be applied:
-/// - **only at the root**
-/// - **only once per search**
-/// - **before any visit counts are accumulated**
-///
-/// # Arguments
-/// * `root` - The root node of the MCTS tree
-/// * `alpha` - Dirichlet concentration parameter (e.g. `0.3`)
-/// * `epsilon` - Mixing factor controlling noise strength (e.g. `0.25`)
-fn add_dirichlet_noise_to_root(root: &NodeRef, alpha: f32, epsilon: f32) {
-    let mut root_borrow = root.borrow_mut();
-    let n = root_borrow.children.len();
-    if n == 0 {
-        return;
-    }
-
-    let noise = dirichlet(alpha, n);
-
-    for (child, &n_i) in root_borrow.children.iter().zip(noise.iter()) {
-        let mut c = child.borrow_mut();
-        c.prior = (1.0 - epsilon) * c.prior + epsilon * n_i;
-    }
-}
-
-pub fn self_play(
-    iterations: u32,
-    mut model: Option<&mut Session>,
-) -> Vec<(OthelloGame, Vec<f32>, f32, Color)> {
-    let mut game = OthelloGame::new();
-    let mut history = Vec::new();
-
-    while !game.game_over() {
-        let (best_move, policy) =
-            mcts_search(game, game.current_turn, iterations, model.as_deref_mut());
-
-        if let Some((row, col)) = best_move {
-            history.push((game, policy.clone(), game.current_turn));
-            game.play(row, col, game.current_turn);
-        } else {
-            // skip turn
-            let other = match game.current_turn {
-                Color::White => Color::Black,
-                Color::Black => Color::White,
-            };
-            if game.legal_moves(other).len() == 0 {
-                break;
-            }
-            game.current_turn = other;
-            continue;
-        }
-
-        game.current_turn = match game.current_turn {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
-        };
-    }
-
-    let (white, black) = game.score();
-    let result = if white > black {
-        1.0
-    } else if black > white {
-        -1.0
-    } else {
-        0.0
-    };
-
-    let mut dataset = Vec::new();
-    for (state, policy, player) in history {
-        let value = match player {
-            Color::White => result,
-            Color::Black => -result,
-        };
-        dataset.push((state, policy, value, player));
-    }
-
-    dataset
-}
-
-pub fn play_match(
-    sims: u32,
-    model_a: Option<&mut Session>,
-    model_b: Option<&mut Session>,
-    swap_colors: bool,
-) -> f32 {
-    let mut game = OthelloGame::new();
-
-    let (mut white_model, mut black_model) = if swap_colors {
-        (model_b, model_a)
-    } else {
-        (model_a, model_b)
-    };
-
-    while !game.game_over() {
-        let current_model: Option<&mut Session> = match game.current_turn {
-            Color::White => white_model.as_deref_mut(),
-            Color::Black => black_model.as_deref_mut(),
-        };
-        let (best_move, _) = mcts_search(game, game.current_turn, sims, current_model);
-        if let Some((row, col)) = best_move {
-            game.play(row, col, game.current_turn);
-        } else {
-            // skip turn
-            game.current_turn = match game.current_turn {
-                Color::White => Color::Black,
-                Color::Black => Color::White,
-            };
-            continue;
-        }
-        game.current_turn = match game.current_turn {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
-        };
-    }
-
-    let (white, black) = game.score();
-    if white > black {
-        1.0
-    } else if black > white {
-        -1.0
-    } else {
-        0.0
+        assert!((-1.0..=1.0).contains(&value));
     }
 }

@@ -1,21 +1,32 @@
+import argparse
+import json
 import struct
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+import time
 
 
 class OthelloDataset(Dataset):
     def __init__(self, path):
+        print(f"Opening dataset: {path}")
+        start_time = time.time()
+
         with open(path, "rb") as f:
             magic, version, n = struct.unpack("<III", f.read(12))
             assert magic == 0x4F54484C  # "OTHL"
             assert version == 1
 
+            print(f"Loading {n:,} samples into memory...")
+
             self.states = np.zeros((n, 2, 8, 8), dtype=np.float32)
             self.policies = np.zeros((n, 64), dtype=np.float32)
             self.values = np.zeros((n,), dtype=np.float32)
+
+            # Show progress every 10% of samples
+            checkpoint = max(1, n // 10)
 
             for i in range(n):
                 self.states[i] = (
@@ -25,6 +36,13 @@ class OthelloDataset(Dataset):
                 )
                 self.policies[i] = np.frombuffer(f.read(64 * 4), dtype=np.float32)
                 self.values[i] = struct.unpack("<f", f.read(4))[0]
+
+                if (i + 1) % checkpoint == 0:
+                    pct = (i + 1) / n * 100
+                    print(f"  Loaded {i + 1:,} / {n:,} samples ({pct:.0f}%)")
+
+        elapsed = time.time() - start_time
+        print(f"Dataset loaded in {elapsed:.1f}s ({n / elapsed:.0f} samples/sec)")
 
     def __len__(self):
         return len(self.values)
@@ -125,15 +143,24 @@ class OthelloNet(nn.Module):
         return p, v
 
 
-def export_onnx(model, epoch, device):
+def export_onnx(model, epoch, device, prefix):
     model.eval()
+
+    # Ensure output directory exists
+    import os
+
+    output_path = f"{prefix}_othello_net_epoch_{epoch:03d}.onnx"
+    os.makedirs(
+        os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
+        exist_ok=True,
+    )
 
     dummy_input = torch.zeros(1, 2, 8, 8, device=device)
 
     torch.onnx.export(
         model,
         dummy_input,
-        f"othello_net_epoch_{epoch:03d}.onnx",
+        f"{prefix}_othello_net_epoch_{epoch:03d}.onnx",
         input_names=["board"],
         output_names=["policy", "value"],
         dynamic_axes={
@@ -151,19 +178,48 @@ def export_onnx(model, epoch, device):
 def train(
     model,
     dataset,
+    prefix,
     epochs=10,
     batch_size=256,
     lr=1e-3,
     device="cuda" if torch.cuda.is_available() else "cpu",
 ):
+    print(f"\nStarting training on {device}")
+    print(f"  Dataset size: {len(dataset):,} samples")
+    print(f"  Batch size: {batch_size}")
+    print(f"  Epochs: {epochs}")
+    print(f"  Learning rate: {lr}")
+    print()
+
     model.to(device)
     model.train()
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
 
+    num_batches = len(loader)
+
+    # Statistics tracking
+    training_stats = {
+        "config": {
+            "dataset_size": len(dataset),
+            "batch_size": batch_size,
+            "epochs": epochs,
+            "learning_rate": lr,
+            "device": device,
+            "num_batches_per_epoch": num_batches,
+        },
+        "epochs": [],
+    }
+
     for epoch in range(epochs):
+        epoch_start = time.time()
         total_loss = 0.0
+        total_policy_loss = 0.0
+        total_value_loss = 0.0
+        batch_count = 0
+
+        batch_losses = []
 
         for states, target_policies, target_values in loader:
             states = states.to(device)
@@ -185,16 +241,98 @@ def train(
             optimizer.step()
 
             total_loss += loss.item()
+            total_policy_loss += policy_loss.item()
+            total_value_loss += value_loss.item()
+            batch_count += 1
 
-        print(f"Epoch {epoch + 1}: loss={total_loss / len(loader):.4f}")
+            batch_losses.append(
+                {
+                    "batch": batch_count,
+                    "loss": loss.item(),
+                    "policy_loss": policy_loss.item(),
+                    "value_loss": value_loss.item(),
+                }
+            )
 
-        export_onnx(model, epoch + 1, device)
+            # Show progress every 10% of batches
+            if batch_count % max(1, num_batches // 10) == 0:
+                avg_loss = total_loss / batch_count
+                pct = batch_count / num_batches * 100
+                print(
+                    f"  Epoch {epoch + 1}/{epochs} - Batch {batch_count}/{num_batches} ({pct:.0f}%) - Loss: {avg_loss:.4f}"
+                )
+
+        epoch_time = time.time() - epoch_start
+        avg_loss = total_loss / len(loader)
+        avg_policy_loss = total_policy_loss / len(loader)
+        avg_value_loss = total_value_loss / len(loader)
+
+        print(f"Epoch {epoch + 1}/{epochs} completed in {epoch_time:.1f}s")
+        print(
+            f"  Average loss: {avg_loss:.4f} (policy: {avg_policy_loss:.4f}, value: {avg_value_loss:.4f})"
+        )
+
+        # Compute standard error of the mean for the losses
+        batch_loss_values = [b["loss"] for b in batch_losses]
+        batch_policy_loss_values = [b["policy_loss"] for b in batch_losses]
+        batch_value_loss_values = [b["value_loss"] for b in batch_losses]
+
+        loss_std = np.std(batch_loss_values)
+        policy_loss_std = np.std(batch_policy_loss_values)
+        value_loss_std = np.std(batch_value_loss_values)
+
+        loss_sem = loss_std / np.sqrt(len(batch_loss_values))
+        policy_loss_sem = policy_loss_std / np.sqrt(len(batch_policy_loss_values))
+        value_loss_sem = value_loss_std / np.sqrt(len(batch_value_loss_values))
+
+        # Record epoch statistics
+        epoch_stats = {
+            "epoch": epoch + 1,
+            "time_seconds": epoch_time,
+            "avg_loss": avg_loss,
+            "avg_policy_loss": avg_policy_loss,
+            "avg_value_loss": avg_value_loss,
+            "loss_std": loss_std,
+            "policy_loss_std": policy_loss_std,
+            "value_loss_std": value_loss_std,
+            "loss_sem": loss_sem,
+            "policy_loss_sem": policy_loss_sem,
+            "value_loss_sem": value_loss_sem,
+            "batches": batch_losses,
+        }
+        training_stats["epochs"].append(epoch_stats)
+
+        export_onnx(model, epoch + 1, device, prefix)
+
+    # Save training statistics to JSON file
+    stats_file = f"{prefix}_training_stats.json"
+    with open(stats_file, "w") as f:
+        json.dump(training_stats, f, indent=2)
+    print(f"Training statistics saved to {stats_file}")
+
+    return training_stats
 
 
 if __name__ == "__main__":
-    dataset = OthelloDataset(
-        "../../crates/othello-self-play/data/selfplay_00500_01000.bin"
-    )
-    model = OthelloNet(num_blocks=10)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", required=True)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--res-blocks", type=int, default=10)
+    parser.add_argument("--out-prefix", type=str, default="othello_net")
 
-    train(model, dataset, epochs=10, batch_size=256, lr=1e-3, device="cuda")
+    args = parser.parse_args()
+
+    dataset = OthelloDataset(args.data)
+    model = OthelloNet(num_blocks=args.res_blocks)
+
+    train(
+        model,
+        dataset,
+        prefix=args.out_prefix,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        device="cuda"
+    )
