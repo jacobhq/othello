@@ -12,6 +12,7 @@ use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
 use std::cell::RefCell;
 use std::rc::Rc;
+use serde::Serialize;
 use crate::distr::{dirichlet};
 
 /// Shared, mutable reference to an `MCTSNode`.
@@ -297,12 +298,12 @@ pub(crate) fn mcts_search(
     player: Color,
     iterations: u32,
     mut model: Option<&mut Session>,
-) -> (Option<(usize, usize)>, Vec<f32>) {
+) -> (Option<(usize, usize)>, Vec<f32>, Option<(f32, f32, f32)>) {
     let root = MCTSNode::new(root_state, player, None, None);
 
     // No legal moves, policy vec empty
     if root.borrow().untried_actions.is_empty() {
-        return (None, vec![0.0; 64]);
+        return (None, vec![0.0; 64], None);
     }
 
     for _ in 0..iterations {
@@ -361,7 +362,54 @@ pub(crate) fn mcts_search(
     let policy = root.borrow().policy_vector();
     let best_move = MCTSNode::best_child(&root, 0.0).and_then(|n| n.borrow().action);
 
-    (best_move, policy)
+    let stats = Some(compute_root_stats(&root, best_move));
+
+    (best_move, policy, stats)
+}
+
+fn compute_root_stats(root: &NodeRef, best_move: Option<(usize, usize)>) -> (f32, f32, f32) {
+    let root_borrow = root.borrow();
+
+    let visits: Vec<f32> = root_borrow
+        .children
+        .iter()
+        .map(|c| c.borrow().visits as f32)
+        .collect();
+
+    let total: f32 = visits.iter().sum();
+    if total == 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+
+    // Entropy
+    let entropy = visits.iter().fold(0.0, |acc, &v| {
+        let p = v / total;
+        if p > 0.0 {
+            acc - p * p.ln()
+        } else {
+            acc
+        }
+    });
+
+    // Max visit fraction
+    let max_visit_frac = visits.iter().cloned().fold(0.0, f32::max) / total;
+
+    // Q of selected move
+    let q_selected = best_move
+        .and_then(|mv| {
+            root_borrow.children.iter().find(|c| c.borrow().action == Some(mv))
+        })
+        .map(|c| {
+            let c = c.borrow();
+            if c.visits > 0 {
+                c.wins / c.visits as f32
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+
+    (entropy, max_visit_frac, q_selected)
 }
 
 /// Unit tests for the Monte Carlo Tree Search implementation.
@@ -780,105 +828,5 @@ fn add_dirichlet_noise_to_root(root: &NodeRef, alpha: f32, epsilon: f32) {
     for (child, &n_i) in root_borrow.children.iter().zip(noise.iter()) {
         let mut c = child.borrow_mut();
         c.prior = (1.0 - epsilon) * c.prior + epsilon * n_i;
-    }
-}
-
-pub fn self_play(
-    iterations: u32,
-    mut model: Option<&mut Session>,
-) -> Vec<(OthelloGame, Vec<f32>, f32, Color)> {
-    let mut game = OthelloGame::new();
-    let mut history = Vec::new();
-
-    while !game.game_over() {
-        let (best_move, policy) =
-            mcts_search(game, game.current_turn, iterations, model.as_deref_mut());
-
-        if let Some((row, col)) = best_move {
-            history.push((game, policy.clone(), game.current_turn));
-            game.play(row, col, game.current_turn);
-        } else {
-            // skip turn
-            let other = match game.current_turn {
-                Color::White => Color::Black,
-                Color::Black => Color::White,
-            };
-            if game.legal_moves(other).len() == 0 {
-                break;
-            }
-            game.current_turn = other;
-            continue;
-        }
-
-        game.current_turn = match game.current_turn {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
-        };
-    }
-
-    let (white, black) = game.score();
-    let result = if white > black {
-        1.0
-    } else if black > white {
-        -1.0
-    } else {
-        0.0
-    };
-
-    let mut dataset = Vec::new();
-    for (state, policy, player) in history {
-        let value = match player {
-            Color::White => result,
-            Color::Black => -result,
-        };
-        dataset.push((state, policy, value, player));
-    }
-
-    dataset
-}
-
-pub fn play_match(
-    sims: u32,
-    model_a: Option<&mut Session>,
-    model_b: Option<&mut Session>,
-    swap_colors: bool,
-) -> f32 {
-    let mut game = OthelloGame::new();
-
-    let (mut white_model, mut black_model) = if swap_colors {
-        (model_b, model_a)
-    } else {
-        (model_a, model_b)
-    };
-
-    while !game.game_over() {
-        let current_model: Option<&mut Session> = match game.current_turn {
-            Color::White => white_model.as_deref_mut(),
-            Color::Black => black_model.as_deref_mut(),
-        };
-        let (best_move, _) = mcts_search(game, game.current_turn, sims, current_model);
-        if let Some((row, col)) = best_move {
-            game.play(row, col, game.current_turn);
-        } else {
-            // skip turn
-            game.current_turn = match game.current_turn {
-                Color::White => Color::Black,
-                Color::Black => Color::White,
-            };
-            continue;
-        }
-        game.current_turn = match game.current_turn {
-            Color::White => Color::Black,
-            Color::Black => Color::White,
-        };
-    }
-
-    let (white, black) = game.score();
-    if white > black {
-        1.0
-    } else if black > white {
-        -1.0
-    } else {
-        0.0
     }
 }

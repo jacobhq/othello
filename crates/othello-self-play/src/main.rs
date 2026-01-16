@@ -53,14 +53,15 @@ fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&args.out)?;
 
+    let prefix = args.prefix.unwrap_or("".to_string());
+
     // Generate self-play data
     let samples: Vec<Sample> =
-        generate_self_play_data(args.games, args.sims, args.model).expect("Error generating self-play data");
+        generate_self_play_data(&prefix, args.games, args.sims, args.model).expect("Error generating self-play data");
 
     info!("Generated {} samples", samples.len());
 
     // Write dataset
-    let prefix = args.prefix.unwrap_or("".to_string());
     let filename = args.out.join(format!(
         "{}{}selfplay_{:05}_{:05}.bin",
         prefix,
