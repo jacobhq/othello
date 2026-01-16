@@ -1,10 +1,8 @@
-use crate::neural_net::load_model;
 use crate::self_play::{generate_self_play_data, Sample};
 use crate::write_data::write_samples;
 use clap::Parser;
-use ort::session::Session;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::info;
 
 mod mcts;
 mod neural_net;

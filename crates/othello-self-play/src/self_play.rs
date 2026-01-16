@@ -4,7 +4,6 @@ use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
 use rayon::prelude::*;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tracing::{debug, info};
 use std::fs::File;

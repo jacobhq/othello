@@ -124,7 +124,7 @@ mod tests {
         let rotated_policy = rotate_policy(&sample.policy);
 
         assert_eq!(rotated[0][0][7], 1);
-        assert_eq!(rotated_policy[0 * 8 + 7], 1.0);
+        assert_eq!(rotated_policy[7], 1.0);
     }
 
     #[test]
