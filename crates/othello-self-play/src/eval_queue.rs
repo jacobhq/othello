@@ -13,30 +13,43 @@ pub(crate) struct EvalRequest {
 pub(crate) struct EvalQueue {
     requests: Mutex<VecDeque<EvalRequest>>,
     cv: Condvar,
+    max_size: usize,
 }
 
 impl EvalQueue {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(max_size: usize) -> Self {
         Self {
             requests: Mutex::new(VecDeque::new()),
             cv: Condvar::new(),
+            max_size
         }
     }
 
-    pub(crate) fn push_request(&self, req: EvalRequest) {
+    pub(crate) fn push_request_blocking(&self, req: EvalRequest) {
         let mut q = self.requests.lock().unwrap();
+
+        while q.len() >= self.max_size {
+            q = self.cv.wait(q).unwrap();
+        }
+
         q.push_back(req);
         self.cv.notify_one();
     }
 
     fn pop_request_batch(&self, max: usize) -> Vec<EvalRequest> {
         let mut q = self.requests.lock().unwrap();
+
         while q.is_empty() {
             q = self.cv.wait(q).unwrap();
         }
 
         let n = q.len().min(max);
-        q.drain(..n).collect()
+        let batch: Vec<_> = q.drain(..n).collect();
+
+        // IMPORTANT: wake producers waiting for space
+        self.cv.notify_all();
+
+        batch
     }
 }
 

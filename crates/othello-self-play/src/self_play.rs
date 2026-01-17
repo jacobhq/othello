@@ -159,7 +159,7 @@ pub fn generate_self_play_data(
     model_path: Option<PathBuf>,
 ) -> anyhow::Result<Vec<Sample>> {
     // Create shared evaluation queue if we are using a model
-    let eval_queue = model_path.as_ref().map(|_| Arc::new(EvalQueue::new()));
+    let eval_queue = model_path.as_ref().map(|_| Arc::new(EvalQueue::new(4096)));
 
     // Spawn GPU worker thread(s)
     if let (Some(queue), Some(path)) = (eval_queue.clone(), model_path.as_ref()) {
