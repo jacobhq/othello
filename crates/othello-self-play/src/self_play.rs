@@ -1,6 +1,5 @@
 use crate::mcts::mcts_search;
 use crate::neural_net::load_model;
-use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -8,6 +7,8 @@ use serde::Serialize;
 use tracing::{debug, info};
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::sync::Arc;
+use crate::eval_queue::{gpu_worker, EvalQueue};
 use crate::symmetry::get_symmetries;
 
 /// Represents a single self-play game
@@ -53,7 +54,7 @@ pub struct MctsStats {
 ///
 /// * The provided model (if any) is mutated during search and reused across moves.
 /// * Passed turns (when no legal moves are available) are handled explicitly.
-pub fn self_play_game(game_id: usize, iterations: u32, mut model: Option<&mut Session>) -> (Vec<Sample>, Vec<MctsStats>) {
+pub fn self_play_game(game_id: usize, iterations: u32, eval_queue: Option<Arc<EvalQueue>>) -> (Vec<Sample>, Vec<MctsStats>) {
     let mut game = OthelloGame::new();
     let mut samples: Vec<(Sample, Color)> = Vec::new();
     let mut stats: Vec<MctsStats> = Vec::new();
@@ -65,7 +66,7 @@ pub fn self_play_game(game_id: usize, iterations: u32, mut model: Option<&mut Se
         let encoded = game.encode(player);
 
         let (best_move, policy, mcts_stats_opt) =
-            mcts_search(game, player, iterations, model.as_deref_mut());
+            mcts_search(game, player, iterations, eval_queue.clone());
 
         if let Some((entropy, max_visit_frac, q_selected)) = mcts_stats_opt {
             stats.push(MctsStats {
@@ -157,40 +158,58 @@ pub fn generate_self_play_data(
     mcts_iters: u32,
     model_path: Option<PathBuf>,
 ) -> anyhow::Result<Vec<Sample>> {
+    // Create shared evaluation queue if we are using a model
+    let eval_queue = model_path.as_ref().map(|_| Arc::new(EvalQueue::new()));
+
+    // Spawn GPU worker thread(s)
+    if let (Some(queue), Some(path)) = (eval_queue.clone(), model_path.as_ref()) {
+        let num_gpu_workers = 1; // start with 1, increase if GPU allows
+        let batch_size = 64;     // tune for your GPU
+
+        for worker_id in 0..num_gpu_workers {
+            let q = queue.clone();
+            let model_path = path.clone();
+
+            std::thread::spawn(move || {
+                info!("Starting GPU worker {}", worker_id);
+
+                let model = load_model(model_path.to_str().unwrap())
+                    .expect("Failed to load model");
+
+                gpu_worker(q, model, batch_size);
+            });
+        }
+    }
+
+    // Run self-play games in parallel (Rayon)
     let results: Vec<(Vec<Sample>, Vec<MctsStats>)> = (0..games)
         .into_par_iter()
-        .map_init(
-            || {
-                // This runs ONCE per Rayon worker thread
-                match &model_path {
-                    Some(path) => {
-                        info!("Loading model on worker from {:?}", path);
-                        Some(load_model(path.to_str().unwrap()).unwrap())
-                    }
-                    None => None,
-                }
-            },
-            |model, g| {
-                debug!("Starting self-play game {}", g);
+        .map(|g| {
+            debug!("Starting self-play game {}", g);
 
-                let (samples, stats) = self_play_game(g, mcts_iters, model.as_mut());
+            let (samples, stats) =
+                self_play_game(g, mcts_iters, eval_queue.clone());
 
-                debug!("Finished self-play game {}", g);
+            debug!("Finished self-play game {}", g);
 
-                (samples
-                     .into_iter()
-                     .flat_map(get_symmetries)
-                     .collect::<Vec<Sample>>(), stats)
-            },
-        )
+            (
+                samples
+                    .into_iter()
+                    .flat_map(get_symmetries)
+                    .collect::<Vec<Sample>>(),
+                stats,
+            )
+        })
         .collect();
 
+    // Merge results
     let (all_samples, all_stats): (Vec<_>, Vec<_>) =
         results.into_iter().unzip();
 
     let samples = all_samples.into_iter().flatten().collect();
     let stats: Vec<MctsStats> = all_stats.into_iter().flatten().collect();
 
+    // Write MCTS stats to disk
     {
         let file = File::create(format!("{}_mcts_stats.jsonl", prefix))?;
         let mut writer = BufWriter::new(file);

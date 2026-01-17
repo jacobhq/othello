@@ -7,19 +7,20 @@
 //! The search returns both a best move and a policy vector derived from
 //! visit counts, suitable for training a policy network.
 use crate::distr::dirichlet;
-use crate::neural_net::{PolicyElement, nn_eval};
-use ort::session::Session;
+use crate::eval_queue::{EvalQueue, EvalRequest};
+use crate::neural_net::PolicyElement;
 use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Shared, mutable reference to an `MCTSNode`.
 ///
 /// `Rc<RefCell<...>>` is used to allow multiple owners of tree nodes
 /// while enabling interior mutability during search. This design is
 /// intended for single-threaded MCTS.
-type NodeRef = Rc<RefCell<MCTSNode>>;
+pub(crate) type NodeRef = Rc<RefCell<MCTSNode>>;
 
 /// A node in the Monte Carlo Tree Search.
 ///
@@ -308,7 +309,7 @@ pub(crate) fn mcts_search(
     root_state: OthelloGame,
     player: Color,
     iterations: u32,
-    mut model: Option<&mut Session>,
+    eval_queue: Option<Arc<EvalQueue>>
 ) -> (Option<(usize, usize)>, Vec<f32>, Option<(f32, f32, f32)>) {
     let root = MCTSNode::new(root_state, player, None, None);
 
@@ -341,15 +342,22 @@ pub(crate) fn mcts_search(
         // If not, use the Neural Network to get Value and Policy.
         let result = if node.borrow().is_terminal() {
             node.borrow().rollout() // Direct score if game is over
-        } else if let Some(ref mut m) = model {
-            // Get both Policy (for expansion) and Value (for backprop)
-            let (policy, value) = nn_eval(m, &node.borrow().state, node.borrow().player)
-                .expect("Error getting from the model");
+        } else if let Some(queue) = &eval_queue {
+            use std::sync::mpsc;
 
-            // Expand all children at once using the NN policy
+            let (tx, rx) = mpsc::channel();
+
+            queue.push_request(EvalRequest {
+                state: node.borrow().state,
+                player: node.borrow().player,
+                reply: tx,
+            });
+
+            // Block waiting for GPU result
+            let (policy, value) = rx.recv().expect("GPU worker hung up");
+
             MCTSNode::expand_all(&node, &policy);
 
-            // Add Dirichlet noise to root node
             if Rc::ptr_eq(&node, &root) {
                 add_dirichlet_noise_to_root(&node, 0.3, 0.25);
             }
