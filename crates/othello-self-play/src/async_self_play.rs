@@ -54,7 +54,7 @@ pub fn generate_self_play_data(
         let queue = eval_queue.clone();
         let model = load_model(&model_path)?;
         thread::spawn(move || {
-            gpu_worker(queue, model, 256);
+            gpu_worker(queue, model, 1024);
         });
     }
 
