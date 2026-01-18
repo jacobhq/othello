@@ -7,19 +7,26 @@
 //! The search returns both a best move and a policy vector derived from
 //! visit counts, suitable for training a policy network.
 use crate::distr::dirichlet;
-use crate::neural_net::{PolicyElement, nn_eval};
-use ort::session::Session;
+use crate::eval_queue::{EvalQueue, EvalRequest};
+use crate::neural_net::PolicyElement;
 use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{mpsc, Arc, Mutex};
+
+const VIRTUAL_LOSS: f32 = 1.0;
 
 /// Shared, mutable reference to an `MCTSNode`.
 ///
 /// `Rc<RefCell<...>>` is used to allow multiple owners of tree nodes
 /// while enabling interior mutability during search. This design is
 /// intended for single-threaded MCTS.
-type NodeRef = Rc<RefCell<MCTSNode>>;
+type NodeRef = Arc<Mutex<MCTSNode>>;
+
+enum EvalStatus {
+    NotRequested,
+    Pending(mpsc::Receiver<(Vec<PolicyElement>, f32)>),
+    Ready(Vec<PolicyElement>, f32),
+}
 
 /// A node in the Monte Carlo Tree Search.
 ///
@@ -46,6 +53,9 @@ struct MCTSNode {
     untried_actions: Vec<(usize, usize)>,
     /// Neural network prediction
     prior: f32,
+    eval_status: EvalStatus,
+    virtual_loss: f32,
+
 }
 
 impl MCTSNode {
@@ -60,7 +70,7 @@ impl MCTSNode {
         action: Option<(usize, usize)>,
     ) -> NodeRef {
         let untried_actions = state.legal_moves(player);
-        Rc::new(RefCell::new(Self {
+        Arc::new(Mutex::new(Self {
             state,
             player,
             parent,
@@ -70,6 +80,8 @@ impl MCTSNode {
             wins: 0.0,
             untried_actions,
             prior: 0.0,
+            eval_status: EvalStatus::NotRequested,
+            virtual_loss: 0.0,
         }))
     }
 
@@ -88,27 +100,21 @@ impl MCTSNode {
     /// The exploration constant `c` controls the exploration–exploitation
     /// tradeoff. Larger values favour exploration.
     fn best_child(node: &NodeRef, c: f32) -> Option<NodeRef> {
-        let n = node.borrow();
+        let n = node.lock().unwrap();
         if n.children.is_empty() {
             return None;
         }
         n.children
             .iter()
             .max_by(|a, b| {
-                let a_borrow = a.borrow();
-                let b_borrow = b.borrow();
+                let a_borrow = a.lock().unwrap();
+                let b_borrow = b.lock().unwrap();
 
                 // Calculate Q-values (exploitation)
-                let q_a = if a_borrow.visits > 0 {
-                    a_borrow.wins / a_borrow.visits as f32
-                } else {
-                    0.0
-                };
-                let q_b = if b_borrow.visits > 0 {
-                    b_borrow.wins / b_borrow.visits as f32
-                } else {
-                    0.0
-                };
+                let effective_visits_a = (a_borrow.visits as f32 + a_borrow.virtual_loss).max(1.0);
+                let q_a = a_borrow.wins / effective_visits_a;
+                let effective_visits_b = (b_borrow.visits as f32 + b_borrow.virtual_loss).max(1.0);
+                let q_b = b_borrow.wins / effective_visits_b;
 
                 // PUCT formula: Q + C * P * (sqrt(Parent_N) / (1 + Child_N))
                 let u_a = c
@@ -120,7 +126,7 @@ impl MCTSNode {
 
                 (q_a + u_a).partial_cmp(&(q_b + u_b)).unwrap()
             })
-            .map(Rc::clone)
+            .map(Arc::clone)
     }
 
     /// Expands one untried action from this node.
@@ -129,7 +135,7 @@ impl MCTSNode {
     /// current game state. The child is added to this node's children
     /// and returned.
     fn expand(node: &NodeRef) -> Option<NodeRef> {
-        let mut n = node.borrow_mut();
+        let mut n = node.lock().unwrap();
 
         if let Some((row, col)) = n.untried_actions.pop() {
             let mut new_state = n.state;
@@ -141,10 +147,10 @@ impl MCTSNode {
             let child = MCTSNode::new(
                 new_state,
                 next_player,
-                Some(Rc::clone(node)),
+                Some(Arc::clone(node)),
                 Some((row, col)),
             );
-            n.children.push(Rc::clone(&child));
+            n.children.push(Arc::clone(&child));
             Some(child)
         } else {
             None
@@ -161,7 +167,7 @@ impl MCTSNode {
     /// TODO: It should not be possible to call expand and expand all
     /// TODO: on an instance of this struct
     fn expand_all(node: &NodeRef, policy: &[PolicyElement]) {
-        let mut n = node.borrow_mut();
+        let mut n = node.lock().unwrap();
         let moves = n.state.legal_moves(n.player);
 
         for (row, col) in moves {
@@ -174,16 +180,18 @@ impl MCTSNode {
                 Color::Black => Color::White,
             };
 
-            let child = Rc::new(RefCell::new(MCTSNode {
+            let child = Arc::new(Mutex::new(MCTSNode {
                 state: next_state,
                 player: next_player,
-                parent: Some(Rc::clone(node)),
+                parent: Some(Arc::clone(node)),
                 children: Vec::new(),
                 action: Some((row, col)),
                 visits: 0,
                 wins: 0.0,
                 untried_actions: Vec::new(), // Not needed in expand_all approach
                 prior: prob.1,
+                eval_status: EvalStatus::NotRequested,
+                virtual_loss: 0.0,
             }));
             n.children.push(child);
         }
@@ -258,15 +266,24 @@ impl MCTSNode {
     /// The value is accumulated into each node's statistics, and the
     /// sign of the result is flipped at each level to account for
     /// alternating player perspectives.
-    fn backpropagate(node: &NodeRef, result: f32) {
-        {
-            let mut n = node.borrow_mut();
-            n.visits += 1;
+    fn backpropagate(node: &NodeRef, mut result: f32) {
+        let mut current = Some(Arc::clone(node));
+
+        while let Some(nref) = current {
+            let mut n = nref.lock().unwrap();
+
+            // Undo virtual loss (if any)
+            if n.virtual_loss > 0.0 {
+                n.wins += n.virtual_loss;
+                n.virtual_loss = 0.0;
+            }
+
+            // Apply real result
             n.wins += result;
-        } // n is freed here, so safe to borrow it again
-        if let Some(parent) = &node.borrow().parent {
-            // Negate result because parent is other player
-            MCTSNode::backpropagate(parent, -result);
+            n.visits += 1;
+
+            result = -result;
+            current = n.parent.as_ref().map(Arc::clone);
         }
     }
 
@@ -277,11 +294,11 @@ impl MCTSNode {
     /// the move at that position.
     fn policy_vector(&self) -> Vec<f32> {
         let mut policy = vec![0.0; 64];
-        let total_visits: f32 = self.children.iter().map(|c| c.borrow().visits as f32).sum();
+        let total_visits: f32 = self.children.iter().map(|c| c.lock().unwrap().visits as f32).sum();
 
         if total_visits > 0.0 {
             for child in &self.children {
-                let c = child.borrow();
+                let c = child.lock().unwrap();
                 if let Some((row, col)) = c.action {
                     let idx = row * 8 + col;
                     policy[idx] = c.visits as f32 / total_visits;
@@ -308,82 +325,147 @@ pub(crate) fn mcts_search(
     root_state: OthelloGame,
     player: Color,
     iterations: u32,
-    mut model: Option<&mut Session>,
+    eval_queue: Option<Arc<EvalQueue>>,
 ) -> (Option<(usize, usize)>, Vec<f32>, Option<(f32, f32, f32)>) {
     let root = MCTSNode::new(root_state, player, None, None);
 
-    // No legal moves, policy vec empty
-    if root.borrow().untried_actions.is_empty() {
+    if root.lock().unwrap().untried_actions.is_empty() {
         return (None, vec![0.0; 64], None);
     }
 
-    for _ in 0..iterations {
-        let mut node = Rc::clone(&root);
+    use crossbeam::scope;
 
-        // 1 - Selection: Repeatedly select the best child until we reach a terminal node,
-        // or a node that is not fully expanded.
-        loop {
-            let n = node.borrow();
-            if n.is_terminal() || !n.is_fully_expanded() {
-                break;
-            }
-            if let Some(best) = MCTSNode::best_child(&node, std::f32::consts::SQRT_2) {
-                // Drop the borrow of the node before reassigning the node
-                drop(n);
-                node = best;
-            } else {
-                break;
-            }
+    let threads = num_cpus::get();
+    let sims_per_thread = iterations / threads as u32;
+
+    scope(|s| {
+        for _ in 0..threads {
+            let root = Arc::clone(&root);
+            let eval_queue = eval_queue.clone();
+
+            s.spawn(move |_| {
+                for _ in 0..sims_per_thread {
+                    run_single_simulation(&root, eval_queue.clone());
+                }
+            });
         }
+    }).unwrap();
 
-        // 2, 3 - Evaluation & Expansion:
-        // If the node is terminal, evaluate based on game result.
-        // If not, use the Neural Network to get Value and Policy.
-        let result = if node.borrow().is_terminal() {
-            node.borrow().rollout() // Direct score if game is over
-        } else if let Some(ref mut m) = model {
-            // Get both Policy (for expansion) and Value (for backprop)
-            let (policy, value) = nn_eval(m, &node.borrow().state, node.borrow().player)
-                .expect("Error getting from the model");
-
-            // Expand all children at once using the NN policy
-            MCTSNode::expand_all(&node, &policy);
-
-            // Add Dirichlet noise to root node
-            if Rc::ptr_eq(&node, &root) {
-                add_dirichlet_noise_to_root(&node, 0.3, 0.25);
-            }
-
-            value
-        } else {
-            // Fallback for no-model: expand one and rollout (classic MCTS)
-            if let Some(child) = MCTSNode::expand(&node) {
-                child.borrow().rollout()
-            } else {
-                node.borrow().rollout()
-            }
-        };
-
-        // 4 - Backpropagation: Walk back up the tree and update visit counts and value estimates
-        MCTSNode::backpropagate(&node, result);
-    }
-
-    // Select best child, derive policy vector
-    let policy = root.borrow().policy_vector();
-    let best_move = MCTSNode::best_child(&root, 0.0).and_then(|n| n.borrow().action);
-
+    let policy = root.lock().unwrap().policy_vector();
+    let best_move = MCTSNode::best_child(&root, 0.0).and_then(|n| n.lock().unwrap().action);
     let stats = Some(compute_root_stats(&root, best_move));
 
     (best_move, policy, stats)
 }
 
+fn run_single_simulation(root: &NodeRef, eval_queue: Option<Arc<EvalQueue>>) {
+    let mut node = Arc::clone(root);
+    let mut applied_virtual_loss = false;
+
+    // --- Selection ---
+    loop {
+        {
+            let n = node.lock().unwrap();
+            if n.is_terminal()
+                || matches!(n.eval_status, EvalStatus::Pending(_))
+                || !n.is_fully_expanded()
+            {
+                break;
+            }
+        } // 🔓 lock released here
+
+        if let Some(best) = MCTSNode::best_child(&node, std::f32::consts::SQRT_2) {
+            {
+                let mut b = best.lock().unwrap();
+                b.wins -= VIRTUAL_LOSS;
+                b.virtual_loss += VIRTUAL_LOSS;
+                applied_virtual_loss = true;
+            }
+            node = best;
+        } else {
+            break;
+        }
+    }
+
+    // --- Evaluation ---
+    let maybe_result: Option<f32> = if node.lock().unwrap().is_terminal() {
+        Some(node.lock().unwrap().rollout())
+    } else if let Some(queue) = eval_queue {
+        let mut maybe_value: Option<f32> = None;
+
+        {
+            let mut n = node.lock().unwrap();
+            match &mut n.eval_status {
+                EvalStatus::NotRequested => {
+                    let (tx, rx) = mpsc::channel();
+                    queue.push_request_blocking(EvalRequest {
+                        state: n.state,
+                        player: n.player,
+                        reply: tx,
+                    });
+                    n.eval_status = EvalStatus::Pending(rx);
+                }
+
+                EvalStatus::Pending(rx) => {
+                    if let Ok((policy, value)) = rx.try_recv() {
+                        n.eval_status = EvalStatus::Ready(policy, value);
+                    }
+                }
+
+                EvalStatus::Ready(_, value) => {
+                    maybe_value = Some(*value);
+                }
+            }
+        }
+
+        let value = match maybe_value {
+            Some(v) => v,
+            None => {
+                if applied_virtual_loss {
+                    let mut n = node.lock().unwrap();
+                    n.wins += n.virtual_loss;
+                    n.virtual_loss = 0.0;
+                }
+                return;
+            }, // skip incomplete simulation
+        };
+
+        let policy = {
+            let mut n = node.lock().unwrap();
+            match std::mem::replace(&mut n.eval_status, EvalStatus::NotRequested) {
+                EvalStatus::Ready(p, _) => p,
+                _ => unreachable!(),
+            }
+        };
+
+        MCTSNode::expand_all(&node, &policy);
+
+        if Arc::ptr_eq(&node, &root) {
+            add_dirichlet_noise_to_root(&node, 0.3, 0.25);
+        }
+
+        Some(value)
+    } else {
+        Some(node.lock().unwrap().rollout())
+    };
+
+    // --- Backprop ---
+    if let Some(result) = maybe_result {
+        MCTSNode::backpropagate(&node, result);
+    } else if applied_virtual_loss {
+        let mut n = node.lock().unwrap();
+        n.wins += n.virtual_loss;
+        n.virtual_loss = 0.0;
+    }
+}
+
 fn compute_root_stats(root: &NodeRef, best_move: Option<(usize, usize)>) -> (f32, f32, f32) {
-    let root_borrow = root.borrow();
+    let root_borrow = root.lock().unwrap();
 
     let visits: Vec<f32> = root_borrow
         .children
         .iter()
-        .map(|c| c.borrow().visits as f32)
+        .map(|c| c.lock().unwrap().visits as f32)
         .collect();
 
     let total: f32 = visits.iter().sum();
@@ -406,10 +488,10 @@ fn compute_root_stats(root: &NodeRef, best_move: Option<(usize, usize)>) -> (f32
             root_borrow
                 .children
                 .iter()
-                .find(|c| c.borrow().action == Some(mv))
+                .find(|c| c.lock().unwrap().action == Some(mv))
         })
         .map(|c| {
-            let c = c.borrow();
+            let c = c.lock().unwrap();
             if c.visits > 0 {
                 c.wins / c.visits as f32
             } else {
@@ -441,7 +523,7 @@ fn compute_root_stats(root: &NodeRef, best_move: Option<(usize, usize)>) -> (f32
 /// * `alpha` - Dirichlet concentration parameter (e.g. `0.3`)
 /// * `epsilon` - Mixing factor controlling noise strength (e.g. `0.25`)
 fn add_dirichlet_noise_to_root(root: &NodeRef, alpha: f32, epsilon: f32) {
-    let root_borrow = root.borrow_mut();
+    let root_borrow = root.lock().unwrap();
     let n = root_borrow.children.len();
     if n == 0 {
         return;
@@ -450,7 +532,7 @@ fn add_dirichlet_noise_to_root(root: &NodeRef, alpha: f32, epsilon: f32) {
     let noise = dirichlet(alpha, n);
 
     for (child, &n_i) in root_borrow.children.iter().zip(noise.iter()) {
-        let mut c = child.borrow_mut();
+        let mut c = child.lock().unwrap();
         c.prior = (1.0 - epsilon) * c.prior + epsilon * n_i;
     }
 }
@@ -476,7 +558,7 @@ mod tests {
         let game = initial_game();
         let node = MCTSNode::new(game, Color::Black, None, None);
 
-        let n = node.borrow();
+        let n = node.lock().unwrap();
         let legal = n.state.legal_moves(Color::Black);
 
         // All legal moves should be available for expansion at the start
@@ -496,12 +578,12 @@ mod tests {
         let game = initial_game();
         let node = MCTSNode::new(game, Color::Black, None, None);
 
-        let initial_untried = node.borrow().untried_actions.len();
+        let initial_untried = node.lock().unwrap().untried_actions.len();
         // Expanding the node should consume exactly one untried action
         let child = MCTSNode::expand(&node).expect("Expected expansion");
 
-        let parent = node.borrow();
-        let child_borrow = child.borrow();
+        let parent = node.lock().unwrap();
+        let child_borrow = child.lock().unwrap();
 
         // The parent node should now track the new child
         assert_eq!(parent.children.len(), 1);
@@ -536,7 +618,7 @@ mod tests {
         let node = MCTSNode::new(game, player, None, None);
 
         // A node created from a finished game should be terminal
-        assert!(node.borrow().is_terminal());
+        assert!(node.lock().unwrap().is_terminal());
     }
 
     /// Tests the backpropagation phase of MCTS.
@@ -552,8 +634,8 @@ mod tests {
         // Simulate a win for the child node player
         MCTSNode::backpropagate(&child, 1.0);
 
-        let root_borrow = root.borrow();
-        let child_borrow = child.borrow();
+        let root_borrow = root.lock().unwrap();
+        let child_borrow = child.lock().unwrap();
 
         assert_eq!(child_borrow.visits, 1);
         assert_eq!(child_borrow.wins, 1.0);
@@ -576,19 +658,19 @@ mod tests {
         while MCTSNode::expand(&root).is_some() {}
 
         // Manually assign visit counts to simulate completed MCTS simulations
-        for (i, child) in root.borrow().children.iter().enumerate() {
-            let mut c = child.borrow_mut();
+        for (i, child) in root.lock().unwrap().children.iter().enumerate() {
+            let mut c = child.lock().unwrap();
             c.visits = (i + 1) as u32;
         }
 
-        let policy = root.borrow().policy_vector();
+        let policy = root.lock().unwrap().policy_vector();
         // A valid probability distribution must sum to 1 (but we'll tolerate it if it's a little off)
         let sum: f32 = policy.iter().sum();
 
         assert!((sum - 1.0).abs() < 1e-5);
 
         // Only legal moves should have non-zero probability
-        let legal = root.borrow().state.legal_moves(Color::Black);
+        let legal = root.lock().unwrap().state.legal_moves(Color::Black);
         for (idx, p) in policy.iter().enumerate() {
             // Board positions are flattened into a 1D array (row * 8 + column)
             let row = idx / 8;
@@ -701,14 +783,14 @@ mod tests {
                 if let Some(child) = MCTSNode::expand(&root) {
                     child
                 } else {
-                    Rc::clone(&root)
+                    Arc::clone(&root)
                 }
             };
             MCTSNode::backpropagate(&leaf, 1.0);
         }
 
         // The root node should be updated once per iteration
-        assert_eq!(root.borrow().visits, iterations);
+        assert_eq!(root.lock().unwrap().visits, iterations);
     }
 
     /// Tests consistency between parent and child visit counts.
@@ -724,24 +806,24 @@ mod tests {
 
         // Assign fake visit counts
         let mut total = 0;
-        for child in &root.borrow().children {
-            let mut c = child.borrow_mut();
+        for child in &root.lock().unwrap().children {
+            let mut c = child.lock().unwrap();
             // Assign equal visit counts to each child to test consistency
             c.visits = 10;
             total += 10;
         }
 
-        root.borrow_mut().visits = total;
+        root.lock().unwrap().visits = total;
 
         let child_sum: u32 = root
-            .borrow()
+            .lock().unwrap()
             .children
             .iter()
-            .map(|c| c.borrow().visits)
+            .map(|c| c.lock().unwrap().visits)
             .sum();
 
         // The sum of child visits should equal the parent's visit count
-        assert_eq!(child_sum, root.borrow().visits);
+        assert_eq!(child_sum, root.lock().unwrap().visits);
     }
 
     /// Tests the UCB selection formula when the exploration constant is zero.
@@ -756,23 +838,23 @@ mod tests {
         let child2 = MCTSNode::expand(&root).unwrap();
 
         {
-            let mut c1 = child1.borrow_mut();
+            let mut c1 = child1.lock().unwrap();
             c1.visits = 10;
             c1.wins = 5.0; // 50%
         }
 
         {
-            let mut c2 = child2.borrow_mut();
+            let mut c2 = child2.lock().unwrap();
             c2.visits = 10;
             c2.wins = 8.0; // 80%
         }
 
-        root.borrow_mut().visits = 20;
+        root.lock().unwrap().visits = 20;
 
         // With exploration disabled (c = 0), selection should be based
         // purely on average win rate
         let best = MCTSNode::best_child(&root, 0.0).unwrap();
-        assert!(Rc::ptr_eq(&best, &child2));
+        assert!(Arc::ptr_eq(&best, &child2));
     }
 
     /// Tests that the exploration term in the UCB formula is working correctly.
@@ -787,22 +869,22 @@ mod tests {
         let unexplored = MCTSNode::expand(&root).unwrap();
 
         {
-            let mut e = explored.borrow_mut();
+            let mut e = explored.lock().unwrap();
             e.visits = 100;
             e.wins = 90.0;
         }
 
         {
-            let mut u = unexplored.borrow_mut();
+            let mut u = unexplored.lock().unwrap();
             u.visits = 1;
             u.wins = 0.0;
         }
 
-        root.borrow_mut().visits = 101;
+        root.lock().unwrap().visits = 101;
 
         // A high exploration constant should favour less-visited nodes
         let best = MCTSNode::best_child(&root, 10.0).unwrap();
-        assert!(Rc::ptr_eq(&best, &unexplored));
+        assert!(Arc::ptr_eq(&best, &unexplored));
     }
 
     /// Ensures that random rollouts correctly handle pass turns.
@@ -833,7 +915,7 @@ mod tests {
         }
 
         let node = MCTSNode::new(game, player, None, None);
-        let value = node.borrow().rollout();
+        let value = node.lock().unwrap().rollout();
 
         // Rollout values should always be within the valid range [-1, 1]
         assert!((-1.0..=1.0).contains(&value));

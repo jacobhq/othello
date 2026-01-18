@@ -1,4 +1,4 @@
-use crate::self_play::{generate_self_play_data, Sample};
+use crate::async_self_play::{generate_self_play_data, Sample};
 use crate::write_data::write_samples;
 use clap::Parser;
 use std::path::PathBuf;
@@ -10,6 +10,9 @@ mod self_play;
 mod write_data;
 mod distr;
 mod symmetry;
+mod eval_queue;
+mod async_mcts;
+mod async_self_play;
 
 /// Self-play data generator for Othello
 #[derive(Parser, Debug)]
@@ -41,7 +44,7 @@ struct Args {
 
     /// File name prefix
     #[arg(long, short)]
-    prefix: Option<String>
+    prefix: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -51,15 +54,18 @@ fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&args.out)?;
 
-    let prefix = args.prefix.unwrap_or("".to_string());
+    let prefix = args.prefix.unwrap_or_default();
 
-    // Generate self-play data
-    let samples: Vec<Sample> =
-        generate_self_play_data(&prefix, args.games, args.sims, args.model).expect("Error generating self-play data");
+    // NEW async self-play
+    let samples: Vec<Sample> = generate_self_play_data(
+        &prefix,
+        args.games,
+        args.sims,
+        args.model,
+    )?;
 
     info!("Generated {} samples", samples.len());
 
-    // Write dataset
     let filename = args.out.join(format!(
         "{}{}selfplay_{:05}_{:05}.bin",
         prefix,
