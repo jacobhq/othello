@@ -6,7 +6,6 @@ use tracing::info;
 
 mod mcts;
 mod neural_net;
-mod self_play;
 mod write_data;
 mod distr;
 mod symmetry;
