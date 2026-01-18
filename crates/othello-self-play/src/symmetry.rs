@@ -1,4 +1,4 @@
-use crate::self_play::Sample;
+use crate::async_self_play::Sample;
 
 pub(crate) fn get_symmetries(sample: Sample) -> Vec<Sample> {
     let mut symmetries = Vec::with_capacity(8);

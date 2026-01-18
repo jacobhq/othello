@@ -1,16 +1,17 @@
+use rayon::prelude::*;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use std::fs::File;
-use std::io::{BufWriter, Write};
 
+use crate::async_mcts::{mcts_search_parallel, new_root, select_action};
+use crate::eval_queue::{EvalQueue, gpu_worker};
+use crate::neural_net::load_model;
 use anyhow::Result;
+use othello::othello_game::{Color, OthelloGame};
 use serde::Serialize;
 use tracing::debug;
-use crate::async_mcts::{mcts_search_parallel, new_root, select_action};
-use crate::eval_queue::{gpu_worker, EvalQueue};
-use crate::neural_net::load_model;
-use othello::othello_game::{Color, OthelloGame};
 
 /// Represents a single self-play training sample
 #[derive(Clone)]
@@ -45,7 +46,7 @@ pub fn generate_self_play_data(
         .to_string();
 
     // 1. Create a single EvalQueue shared across all games
-    let eval_queue = Arc::new(EvalQueue::new(2048));
+    let eval_queue = Arc::new(EvalQueue::new(4096));
 
     // 2. Spawn GPU worker(s)
     let gpu_workers = 1; // adjust if GPU allows
@@ -53,20 +54,26 @@ pub fn generate_self_play_data(
         let queue = eval_queue.clone();
         let model = load_model(&model_path)?;
         thread::spawn(move || {
-            gpu_worker(queue, model, 16);
+            gpu_worker(queue, model, 256);
         });
     }
 
-    // 3. Run self-play games sequentially
-    let mut all_samples = Vec::new();
-    let mut all_stats = Vec::new();
+    // 3. Run self-play games in parallel
+    let results: Vec<(Vec<Sample>, Vec<MctsStats>)> = (0..games)
+        .into_par_iter()
+        .map(|game_idx| run_single_game(game_idx, eval_queue.clone(), sims_per_move as usize))
+        .collect();
 
-    for game_idx in 0..games {
-        let (game_samples, game_stats) =
-            run_single_game(game_idx, eval_queue.clone(), sims_per_move as usize);
-        all_samples.extend(game_samples);
-        all_stats.extend(game_stats);
-    }
+    // Flatten all the samples and apply symmetries
+    let all_samples: Vec<Sample> = results
+        .iter()
+        .flat_map(|(s, _)| {
+            s.clone()
+                .into_iter()
+                .flat_map(crate::symmetry::get_symmetries)
+        })
+        .collect();
+    let all_stats: Vec<MctsStats> = results.iter().flat_map(|(_, st)| st.clone()).collect();
 
     // Write MCTS stats to JSONL
     {
@@ -102,7 +109,8 @@ fn run_single_game(
         mcts_search_parallel(root.clone(), eval_queue.clone(), sims_per_move);
 
         // Extract policy and move stats
-        let (policy, entropy, max_visit_frac, q_selected) = extract_policy_and_stats(&root, move_count < 10);
+        let (policy, entropy, max_visit_frac, q_selected) =
+            extract_policy_and_stats(&root, move_count < 10);
 
         stats.push(MctsStats {
             game_id,
@@ -137,23 +145,28 @@ fn run_single_game(
 }
 
 /// Extract policy probabilities and simple stats for logging
-fn extract_policy_and_stats(root: &crate::async_mcts::NodeRef, add_noise: bool) -> (Vec<f32>, f32, f32, f32) {
+fn extract_policy_and_stats(
+    root: &crate::async_mcts::NodeRef,
+    add_noise: bool,
+) -> (Vec<f32>, f32, f32, f32) {
     let mut policy = vec![0.0; 64];
     let children = root.children.lock().unwrap();
 
-    let mut total_visits: f32 = children.iter()
+    let mut total_visits: f32 = children
+        .iter()
         .map(|c| c.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32)
         .sum();
 
     if total_visits == 0.0 {
         for child in children.iter() {
             let (r, c) = child.action.unwrap();
-            policy[r*8 + c] = 1.0 / children.len() as f32;
+            policy[r * 8 + c] = 1.0 / children.len() as f32;
         }
         return (policy, 0.0, 0.0, 0.0);
     }
 
-    let mut visit_counts: Vec<f32> = children.iter()
+    let mut visit_counts: Vec<f32> = children
+        .iter()
         .map(|c| c.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32)
         .collect();
 
@@ -169,11 +182,18 @@ fn extract_policy_and_stats(root: &crate::async_mcts::NodeRef, add_noise: bool) 
 
     for (child, &v) in children.iter().zip(visit_counts.iter()) {
         let (r, c) = child.action.unwrap();
-        policy[r*8 + c] = v / total_visits;
+        policy[r * 8 + c] = v / total_visits;
     }
 
-    let entropy = -policy.iter().filter(|&&p| p>0.0).map(|&p| p*p.ln()).sum::<f32>();
-    let max_visit_frac = visit_counts.iter().copied().fold(0.0f32, |a,b| a.max(b/total_visits));
+    let entropy = -policy
+        .iter()
+        .filter(|&&p| p > 0.0)
+        .map(|&p| p * p.ln())
+        .sum::<f32>();
+    let max_visit_frac = visit_counts
+        .iter()
+        .copied()
+        .fold(0.0f32, |a, b| a.max(b / total_visits));
     let q_selected = 0.0; // placeholder: could be mean Q of selected action if available
 
     (policy, entropy, max_visit_frac, q_selected)
@@ -194,7 +214,11 @@ fn encode_state(game: &OthelloGame, player: Color) -> [[[i32; 8]; 8]; 2] {
 
 fn final_value(game: &OthelloGame) -> f32 {
     let (white, black) = game.score();
-    if black > white { 1.0 }
-    else if white > black { -1.0 }
-    else { 0.0 }
+    if black > white {
+        1.0
+    } else if white > black {
+        -1.0
+    } else {
+        0.0
+    }
 }
