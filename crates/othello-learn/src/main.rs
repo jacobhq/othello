@@ -36,18 +36,13 @@ fn main() {
 
         // Generate dummy model for iteration 0
         if i == 0 {
-            let dummy_model_prefix = format!(
-                "../../packages/othello-training/models/{}_{}_othello_net_epoch_000",
-                &args.prefix, model_idx
-            );
-
             println!("Generating dummy ONNX model for iteration 0...");
 
             let mut dummy_cmd = Command::new(python_path);
             dummy_cmd
                 .arg("../../packages/othello-training/main.py")
                 .arg("--out-prefix")
-                .arg(&dummy_model_prefix)
+                .arg(format!("../../packages/othello-training/models/{}_{}", &args.prefix, model_idx))
                 .arg("--dummy-model");
 
             assert!(
