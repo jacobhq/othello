@@ -1,4 +1,3 @@
-use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -60,7 +59,6 @@ pub fn generate_self_play_data(
 
     // 3. Run self-play games in parallel
     let results: Vec<(Vec<Sample>, Vec<MctsStats>)> = (0..games)
-        .into_par_iter()
         .map(|game_idx| run_single_game(game_idx, eval_queue.clone(), sims_per_move as usize))
         .collect();
 
