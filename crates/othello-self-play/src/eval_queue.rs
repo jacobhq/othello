@@ -3,6 +3,7 @@ use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
 use std::collections::VecDeque;
 use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 pub(crate) struct EvalRequest {
     pub(crate) state: OthelloGame,
@@ -39,18 +40,30 @@ impl EvalQueue {
     fn pop_request_batch(&self, max: usize) -> Vec<EvalRequest> {
         let mut q = self.requests.lock().unwrap();
 
+        // Wait until at least ONE request exists
         while q.is_empty() {
             q = self.cv.wait(q).unwrap();
+        }
+
+        let start = Instant::now();
+        let flush_after = Duration::from_millis(1);
+
+        // Wait briefly for more requests to arrive
+        while q.len() < max && start.elapsed() < flush_after {
+            let timeout = flush_after - start.elapsed();
+            let (guard, _) = self.cv.wait_timeout(q, timeout).unwrap();
+            q = guard;
         }
 
         let n = q.len().min(max);
         let batch: Vec<_> = q.drain(..n).collect();
 
-        // IMPORTANT: wake producers waiting for space
+        // Wake producers waiting for space
         self.cv.notify_all();
 
         batch
     }
+
 }
 
 pub(crate) fn gpu_worker(
