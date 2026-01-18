@@ -118,38 +118,31 @@ fn run_single_game(
     let mut samples = Vec::new();
     let mut game = OthelloGame::new();
     let mut player = Color::Black;
+    let mut move_count = 0;
 
     while !game.game_over() {
-        // 1. Run MCTS for this position
-        let root = new_root(game.clone(), player);
+        let root = new_root(game, player);
 
-        mcts_search_parallel(
-            root.clone(),
-            eval_queue.clone(),
-            sims_per_move,
-        );
+        mcts_search_parallel(root.clone(), eval_queue.clone(), sims_per_move);
 
-        // 2. Extract policy (visit counts)
-        let policy = extract_policy(&root);
+        // Apply root Dirichlet noise only on first search at this position
+        let policy = extract_policy(&root, true);
 
-        // 3. Record sample (value filled in later)
         samples.push(Sample {
             state: encode_state(&game, player),
             policy,
             value: 0.0,
         });
 
-        // 4. Play move
-        let (row, col) = select_action(&root, 0.0);
+        let temperature = if move_count < 10 { 1.0 } else { 0.0 };
+        let (row, col) = select_action(&root, temperature);
+
         game.play(row, col, player);
         player = player.opponent();
+        move_count += 1;
     }
 
-    // ------------------------------------------------------------
-    // 5. Assign final game result to all samples
-    // ------------------------------------------------------------
     let value = final_value(&game);
-
     for (i, sample) in samples.iter_mut().enumerate() {
         sample.value = if i % 2 == 0 { value } else { -value };
     }
@@ -157,22 +150,49 @@ fn run_single_game(
     samples
 }
 
-fn extract_policy(root: &crate::async_mcts::NodeRef) -> Vec<f32> {
+fn extract_policy(root: &crate::async_mcts::NodeRef, add_noise: bool) -> Vec<f32> {
     let mut policy = vec![0.0; 64];
     let children = root.children.lock().unwrap();
 
-    let total_visits: f32 = children
+    let mut total_visits: f32 = children
         .iter()
         .map(|c| c.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32)
         .sum();
 
-    if total_visits > 0.0 {
+    if total_visits == 0.0 {
+        // fallback: uniform over legal moves
         for child in children.iter() {
             let (r, c) = child.action.unwrap();
             let idx = r * 8 + c;
-            let v = child.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32;
-            policy[idx] = v / total_visits;
+            policy[idx] = 1.0 / children.len() as f32;
         }
+        return policy;
+    }
+
+    let mut visit_counts: Vec<f32> = children
+        .iter()
+        .map(|c| c.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32)
+        .collect();
+
+    // --- Apply Dirichlet noise if requested ---
+    if add_noise {
+        let epsilon = 0.25;
+        let alpha = 0.3;
+        let n = visit_counts.len();
+
+        let noise = crate::distr::dirichlet(alpha, n);
+
+        for (v, n) in visit_counts.iter_mut().zip(noise.iter()) {
+            *v = (1.0 - epsilon) * *v + epsilon * *n * total_visits;
+        }
+
+        total_visits = visit_counts.iter().sum();
+    }
+
+    for (child, &v) in children.iter().zip(visit_counts.iter()) {
+        let (r, c) = child.action.unwrap();
+        let idx = r * 8 + c;
+        policy[idx] = v / total_visits;
     }
 
     policy
