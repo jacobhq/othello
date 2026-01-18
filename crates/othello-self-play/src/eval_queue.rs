@@ -1,4 +1,4 @@
-use crate::neural_net::{nn_eval, PolicyElement};
+use crate::neural_net::{nn_eval, nn_eval_batch, PolicyElement};
 use ort::session::Session;
 use othello::othello_game::{Color, OthelloGame};
 use std::collections::VecDeque;
@@ -59,14 +59,20 @@ pub(crate) fn gpu_worker(
     batch_size: usize,
 ) {
     loop {
+        // 1️⃣ Grab up to `batch_size` pending requests
         let batch = queue.pop_request_batch(batch_size);
 
-        for req in batch {
-            let (policy, value) =
-                nn_eval(&mut model, &req.state, req.player)
-                    .expect("NN eval failed");
+        // 2️⃣ Collect states and players
+        let states: Vec<OthelloGame> = batch.iter().map(|r| r.state).collect();
+        let players: Vec<Color> = batch.iter().map(|r| r.player).collect();
 
-            // Send result back to the requesting MCTS thread
+        // 3️⃣ Evaluate all at once on the GPU
+        let results: Vec<(Vec<PolicyElement>, f32)> =
+            nn_eval_batch(&mut model, &states, &players)
+                .expect("Batch NN eval failed");
+
+        // 4️⃣ Send results back to each request
+        for (req, (policy, value)) in batch.into_iter().zip(results.into_iter()) {
             let _ = req.reply.send((policy, value));
         }
     }
