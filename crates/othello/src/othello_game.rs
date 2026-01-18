@@ -16,6 +16,15 @@ pub enum Color {
     Black,
 }
 
+impl Color {
+    pub fn opponent(&self) -> Self {
+        match self {
+            Self::White => Self::Black,
+            Self::Black => Self::White
+        }
+    }
+}
+
 impl Display for Color {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
