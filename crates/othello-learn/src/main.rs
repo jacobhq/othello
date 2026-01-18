@@ -34,7 +34,29 @@ fn main() {
 
         println!("=== Iteration {} ===", i);
 
-        // Rust self play
+        // Generate dummy model for iteration 0
+        if i == 0 {
+            let dummy_model_prefix = format!(
+                "../../packages/othello-training/models/{}_{}_othello_net_epoch_000",
+                &args.prefix, model_idx
+            );
+
+            println!("Generating dummy ONNX model for iteration 0...");
+
+            let mut dummy_cmd = Command::new(python_path);
+            dummy_cmd
+                .arg("../../packages/othello-training/main.py")
+                .arg("--out-prefix")
+                .arg(&dummy_model_prefix)
+                .arg("--dummy-model");
+
+            assert!(
+                dummy_cmd.status().expect("Failed to generate dummy model").success(),
+                "Dummy model generation failed"
+            );
+        }
+
+        // Rust self-play
         let mut self_play = Command::new("../othello-self-play/target/release/othello-self-play");
 
         self_play
@@ -49,16 +71,14 @@ fn main() {
             self_play.arg("--sims").arg(sims.to_string());
         }
 
-        // Pass the model for iteration > 0
-        if i > 0 {
-            let model_in = format!(
-                "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
-                &args.prefix,
-                model_idx,
-                args.model_epochs.unwrap_or(10)
-            );
-            self_play.arg("--model").arg(&model_in);
-        }
+        // Always pass model (dummy for iteration 0, trained otherwise)
+        let model_in = format!(
+            "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
+            &args.prefix,
+            model_idx,
+            if i == 0 { 0 } else { args.model_epochs.unwrap_or(10) }
+        );
+        self_play.arg("--model").arg(&model_in);
 
         assert!(self_play.status().expect("self-play failed").success());
 
@@ -79,8 +99,10 @@ fn main() {
         let mut train = Command::new(python_path);
         train
             .arg("../../packages/othello-training/main.py")
-            .arg("--data").arg(&dataset_path)
-            .arg("--out-prefix").arg(&model_out_prefix);
+            .arg("--data")
+            .arg(&dataset_path)
+            .arg("--out-prefix")
+            .arg(&model_out_prefix);
 
         if let Some(e) = args.model_epochs {
             train.arg("--epochs").arg(e.to_string());
