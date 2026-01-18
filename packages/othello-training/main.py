@@ -356,6 +356,7 @@ def export_dummy_model(prefix, device="cpu"):
             "value": {0: "batch"},
         },
         opset_version=17,
+        dynamo=False
     )
 
     print(f"Dummy model exported to {output_path}")
