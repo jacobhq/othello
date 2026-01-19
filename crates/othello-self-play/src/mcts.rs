@@ -13,7 +13,7 @@ use othello::othello_game::{Color, OthelloGame};
 use rand::{rng, seq::IndexedRandom};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 
 /// Shared, mutable reference to an `MCTSNode`.
 ///
@@ -21,12 +21,6 @@ use std::sync::{mpsc, Arc};
 /// while enabling interior mutability during search. This design is
 /// intended for single-threaded MCTS.
 pub(crate) type NodeRef = Rc<RefCell<MCTSNode>>;
-
-enum EvalStatus {
-    NotRequested,
-    Pending(mpsc::Receiver<(Vec<PolicyElement>, f32)>),
-    Ready(Vec<PolicyElement>, f32),
-}
 
 /// A node in the Monte Carlo Tree Search.
 ///
@@ -53,7 +47,6 @@ struct MCTSNode {
     untried_actions: Vec<(usize, usize)>,
     /// Neural network prediction
     prior: f32,
-    eval_status: EvalStatus
 }
 
 impl MCTSNode {
@@ -78,7 +71,6 @@ impl MCTSNode {
             wins: 0.0,
             untried_actions,
             prior: 0.0,
-            eval_status: EvalStatus::NotRequested,
         }))
     }
 
@@ -193,7 +185,6 @@ impl MCTSNode {
                 wins: 0.0,
                 untried_actions: Vec::new(), // Not needed in expand_all approach
                 prior: prob.1,
-                eval_status: EvalStatus::NotRequested,
             }));
             n.children.push(child);
         }
@@ -352,56 +343,18 @@ pub(crate) fn mcts_search(
         let result = if node.borrow().is_terminal() {
             node.borrow().rollout() // Direct score if game is over
         } else if let Some(queue) = &eval_queue {
-            let mut maybe_value: Option<f32> = None;
+            use std::sync::mpsc;
 
-            {
-                let mut n = node.borrow_mut();
+            let (tx, rx) = mpsc::channel();
 
-                match &mut n.eval_status {
-                    EvalStatus::NotRequested => {
-                        let (tx, rx) = mpsc::channel();
+            queue.push_request(EvalRequest {
+                state: node.borrow().state,
+                player: node.borrow().player,
+                reply: tx,
+            });
 
-                        queue.push_request(EvalRequest {
-                            state: n.state,
-                            player: n.player,
-                            reply: tx,
-                        });
-
-                        n.eval_status = EvalStatus::Pending(rx);
-
-                        // Count visit, but do NOT backprop yet
-                        n.visits += 1;
-                    }
-
-                    EvalStatus::Pending(rx) => {
-                        if let Ok((policy, value)) = rx.try_recv() {
-                            n.eval_status = EvalStatus::Ready(policy, value);
-                        }
-
-                        // Still no value to backprop this iteration
-                        n.visits += 1;
-                    }
-
-                    EvalStatus::Ready(_, value) => {
-                        maybe_value = Some(*value);
-                    }
-                }
-            } // borrow of node ends here
-
-            // If NN result is not ready yet, skip this iteration
-            let value = match maybe_value {
-                Some(v) => v,
-                None => continue,
-            };
-
-            // Now we are guaranteed to have a ready policy
-            let policy = {
-                let mut n = node.borrow_mut();
-                match std::mem::replace(&mut n.eval_status, EvalStatus::NotRequested) {
-                    EvalStatus::Ready(policy, _) => policy,
-                    _ => unreachable!(),
-                }
-            };
+            // Block waiting for GPU result
+            let (policy, value) = rx.recv().expect("GPU worker hung up");
 
             MCTSNode::expand_all(&node, &policy);
 
