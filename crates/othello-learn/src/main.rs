@@ -43,7 +43,7 @@ fn main() {
                 .arg("../../packages/othello-training/main.py")
                 .arg("--out-prefix")
                 .arg(format!("../../packages/othello-training/models/{}_{}", &args.prefix, model_idx))
-                .arg("--dummy-model");
+                .arg("--init-model");
 
             assert!(
                 dummy_cmd.status().expect("Failed to generate dummy model").success(),

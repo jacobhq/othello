@@ -136,7 +136,6 @@ pub fn nn_eval_batch(
 ) -> Result<Vec<(Vec<PolicyElement>, f32)>, Error> {
     let batch_size = states.len();
 
-    // 1️⃣ Create a (N, 2, 8, 8) tensor from the flattened states
     let mut input_tensor: Tensor<f32> =
         Tensor::from_array(ndarray::Array4::<f32>::zeros((batch_size, 2, 8, 8)))?;
 
@@ -163,7 +162,14 @@ pub fn nn_eval_batch(
 
     let mut results = Vec::with_capacity(batch_size);
     for i in 0..batch_size {
-        let policy_flat: Vec<f32> = policy_tensor.row(i).to_vec();
+        let policy_flat: Vec<f32> = policy_tensor
+            .row(i)
+            .iter()
+            .map(|&logp| logp.exp())
+            .collect();
+
+        println!("{policy_flat:?}");
+
         let move_probs: Vec<PolicyElement> = policy_flat
             .into_iter()
             .enumerate()

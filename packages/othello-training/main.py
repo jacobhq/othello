@@ -174,6 +174,39 @@ def export_onnx(model, epoch, device, prefix):
 
     model.train()
 
+def export_initial_model(prefix, num_blocks, device="cpu"):
+    """
+    Exports a randomly initialized OthelloNet WITHOUT training.
+    This is suitable for iteration 0 self-play.
+    """
+    print("Exporting randomly initialized model (no training)")
+
+    model = OthelloNet(num_blocks=num_blocks)
+    model.to(device)
+    model.eval()
+
+    dummy_input = torch.zeros(1, 2, 8, 8, device=device)
+
+    output_path = f"{prefix}_othello_net_epoch_000.onnx"
+    import os
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        output_path,
+        input_names=["board"],
+        output_names=["policy", "value"],
+        dynamic_axes={
+            "board": {0: "batch"},
+            "policy": {0: "batch"},
+            "value": {0: "batch"},
+        },
+        opset_version=17,
+        dynamo=False,
+    )
+
+    print(f"Initial model exported to {output_path}")
 
 def train(
     model,
@@ -372,13 +405,26 @@ if __name__ == "__main__":
     parser.add_argument("--out-prefix", type=str, default="othello_net")
     parser.add_argument("--dummy-model", action="store_true",
                         help="Export a dummy ONNX model for iteration 0")
+    parser.add_argument(
+        "--init-model",
+        action="store_true",
+        help="Export a randomly initialized model without training"
+    )
     args = parser.parse_args()
 
-    if args.dummy_model:
-        export_dummy_model(args.out_prefix, device="cpu")
+    if args.init_model:
+        export_initial_model(
+            prefix=args.out_prefix,
+            num_blocks=args.res_blocks,
+            device="cpu"
+        )
     else:
+        if args.data is None:
+            raise ValueError("--data is required for training")
+
         dataset = OthelloDataset(args.data)
         model = OthelloNet(num_blocks=args.res_blocks)
+
         train(
             model,
             dataset,
@@ -386,6 +432,5 @@ if __name__ == "__main__":
             epochs=args.epochs,
             batch_size=args.batch_size,
             lr=args.lr,
-            device="cuda" if torch.cuda.is_available() else "cpu"
+            device="cuda" if torch.cuda.is_available() else "cpu",
         )
-

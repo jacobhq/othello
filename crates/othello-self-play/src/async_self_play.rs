@@ -6,6 +6,7 @@ use anyhow::Result;
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
 use rand::rng;
+use tracing::debug;
 use crate::async_mcts::search::SearchWorker;
 use crate::async_mcts::tree::Tree;
 use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
@@ -36,13 +37,16 @@ pub fn generate_self_play_data(
     let eval_queue = EvalQueue::new();
 
     // Start GPU worker once
+    debug!("Starting worker");
     let _gpu_thread = start_gpu_worker(eval_queue.gpu_handle(), model, 128);
+    debug!("Worker started");
 
     // ------------------------------------------------------------
     // Self-play games
     // ------------------------------------------------------------
 
     for game_idx in 0..games {
+        debug!("Entering game {game_idx}");
         let mut game = OthelloGame::new();
         let mut current_player = Color::Black;
 
@@ -50,6 +54,7 @@ pub fn generate_self_play_data(
         let mut game_samples: Vec<(Sample, Color)> = Vec::new();
 
         while !game.game_over() {
+            debug!("Entering MCTS loop");
             // -----------------------------------------------------
             // MCTS setup
             // -----------------------------------------------------
@@ -89,9 +94,25 @@ pub fn generate_self_play_data(
             // -----------------------------------------------------
             // Extract policy from visit counts
             // -----------------------------------------------------
-
+            debug!("About to extract policy");
             let mut policy = vec![0.0f32; 64];
             let visits = tree.child_visits(tree.root());
+
+            if visits.is_empty() {
+                // Fallback: uniform over legal moves
+                let legal_moves = game.legal_moves(current_player);
+
+                let p = 1.0 / legal_moves.len() as f32;
+                for (row, col) in legal_moves {
+                    policy[row * 8 + col] = p;
+                }
+            } else {
+                let visits_clone = visits.clone();
+                let total_visits: u32 = visits_clone.iter().map(|(_, v)| *v).sum::<u32>().max(1);
+                for (action, count) in visits_clone {
+                    policy[action] = count as f32 / total_visits as f32;
+                }
+            }
 
             let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
 
@@ -114,8 +135,10 @@ pub fn generate_self_play_data(
             // -----------------------------------------------------
             // Play move (sample from policy)
             // -----------------------------------------------------
-
+            debug!("Making a dist over policy");
+            debug!("{policy:?}");
             let dist = WeightedIndex::new(&policy)?;
+            debug!("Made a dist over policy");
             let mut rng = rng();
             let action = dist.sample(&mut rng);
 
