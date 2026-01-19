@@ -1,29 +1,81 @@
+use crate::async_mcts::tree::{NodeId, Tree};
+use crate::eval_queue::{EvalRequest, EvalResult, SearchHandle};
+use othello::othello_game::{Color, OthelloError, OthelloGame};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use othello::othello_game::{Color, OthelloError};
-use crate::eval_queue::{EvalRequest, EvalResult, SearchHandle};
-use crate::async_mcts::tree::{NodeId, Tree};
 
 /// Global counter for eval request ids
 static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
 
 pub trait Game: Clone + Send + Sync + 'static {
-    /// Returns legal actions as action indices
-    fn legal_moves(&self, player: Color) -> Vec<(usize, usize)>;
+    /// Player to move
+    fn current_player(&self) -> Color;
 
-    /// Apply action and return next state
-    fn play(&mut self, row: usize, col: usize, player: Color) -> Result<(), OthelloError>;
+    /// Legal moves for the current player
+    fn legal_moves(&self) -> Vec<(usize, usize)>;
 
-    /// Is terminal?
+    /// Apply a move for the current player
+    fn play_move(&mut self, row: usize, col: usize) -> Result<(), OthelloError>;
+
+    /// Is the game over?
     fn is_terminal(&self) -> bool;
 
-    /// Terminal value from current player's perspective
-    fn terminal_value(&self) -> f32;
+    /// Terminal value from the *root player*'s perspective
+    fn terminal_value(&self, root_player: Color) -> f32;
 
-    /// Encode state for NN
-    fn encode(&self) -> Vec<f32>;
+    /// Encode state for NN from a given player's perspective
+    fn encode(&self, player: Color) -> Vec<f32>;
 }
 
+impl Game for OthelloGame {
+    fn current_player(&self) -> Color {
+        self.current_turn
+    }
+
+    fn legal_moves(&self) -> Vec<(usize, usize)> {
+        self.legal_moves(self.current_turn)
+    }
+
+    fn play_move(&mut self, row: usize, col: usize) -> Result<(), OthelloError> {
+        self.play(row, col, self.current_turn)
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.game_over()
+    }
+
+    fn terminal_value(&self, root_player: Color) -> f32 {
+        let (black, white) = self.score();
+
+        let diff = match root_player {
+            Color::Black => black as i32 - white as i32,
+            Color::White => white as i32 - black as i32,
+        };
+
+        if diff > 0 {
+            1.0
+        } else if diff < 0 {
+            -1.0
+        } else {
+            0.0
+        }
+    }
+
+    fn encode(&self, player: Color) -> Vec<f32> {
+        let planes = self.encode(player);
+
+        // Flatten [[[i32;8];8];2] → Vec<f32>
+        let mut out = Vec::with_capacity(2 * 8 * 8);
+        for p in 0..2 {
+            for r in 0..8 {
+                for c in 0..8 {
+                    out.push(planes[p][r][c] as f32);
+                }
+            }
+        }
+        out
+    }
+}
 
 /// Single search worker (run this on multiple threads)
 pub struct SearchWorker<G: Game> {
@@ -55,6 +107,8 @@ impl<G: Game> SearchWorker<G> {
 
     /// Run one MCTS simulation
     pub fn simulate(&mut self, root_state: &G) {
+        let root_player = root_state.current_player();
+
         // 1. Selection
         let mut path = Vec::new();
         let mut node_id = self.tree.root();
@@ -64,45 +118,36 @@ impl<G: Game> SearchWorker<G> {
             path.push(node_id);
 
             if state.is_terminal() {
-                let value = state.terminal_value();
+                let value = state.terminal_value(root_player);
                 self.tree.backprop(&path, value);
                 return;
             }
 
-            if let Some((action, child)) =
-                self.tree.select_child(node_id, self.c_puct)
-            {
-                // Apply virtual loss
+            if let Some((action, child)) = self.tree.select_child(node_id, self.c_puct) {
                 self.tree.add_virtual_loss(child, self.virtual_loss);
 
-                state = state.play(action);
+                let (row, col) = action_to_rc(action);
+                state.play_move(row, col).unwrap();
+
                 node_id = child;
             } else {
-                // Leaf (unexpanded)
-                break;
+                break; // unexpanded leaf
             }
         }
 
-        // 2. Leaf handling
+        // 2. Leaf expansion via NN
         let leaf = node_id;
 
-        // Create eval request
         let id = NEXT_EVAL_ID.fetch_add(1, Ordering::Relaxed);
+
         let request = EvalRequest {
             id,
-            state: state.encode(),
+            state: state.encode(root_player),
         };
 
         self.eval_queue.push_request(request);
 
-        self.pending.insert(
-            id,
-            PendingEval {
-                path,
-                leaf,
-                state,
-            },
-        );
+        self.pending.insert(id, PendingEval { path, leaf, state });
     }
 
     /// Opportunistically consume NN eval results
@@ -126,4 +171,14 @@ impl<G: Game> SearchWorker<G> {
         // Backprop value
         self.tree.backprop(&path, result.value);
     }
+}
+
+#[inline]
+fn action_to_rc(action: usize) -> (usize, usize) {
+    (action / 8, action % 8)
+}
+
+#[inline]
+fn rc_to_action(row: usize, col: usize) -> usize {
+    row * 8 + col
 }

@@ -132,60 +132,45 @@ pub(crate) fn nn_eval(
 /// Returns a Vec of (policy vector, value) tuples
 pub fn nn_eval_batch(
     model: &mut Session,
-    games: &[OthelloGame],
-    players: &[Color],
+    states: &[Vec<f32>], // flattened state vectors
 ) -> Result<Vec<(Vec<PolicyElement>, f32)>, Error> {
-    assert_eq!(games.len(), players.len());
+    let batch_size = states.len();
 
-    let batch_size = games.len();
-
-    // 1️⃣ Create a (N, 2, 8, 8) tensor for the batch
+    // 1️⃣ Create a (N, 2, 8, 8) tensor from the flattened states
     let mut input_tensor: Tensor<f32> =
         Tensor::from_array(ndarray::Array4::<f32>::zeros((batch_size, 2, 8, 8)))?;
 
-    for (i, (game, player)) in games.iter().zip(players.iter()).enumerate() {
+    for (i, state) in states.iter().enumerate() {
+        assert_eq!(state.len(), 128, "state must be 2*8*8 flattened");
+
         for row in 0..8 {
             for col in 0..8 {
-                if let Some(c) = game.get(row, col) {
-                    match (player, c) {
-                        (Color::White, Color::White) | (Color::Black, Color::Black) => {
-                            input_tensor[[i as i64, 0, row as i64, col as i64]] = 1.0;
-                        }
-                        (Color::White, Color::Black) | (Color::Black, Color::White) => {
-                            input_tensor[[i as i64, 1, row as i64, col as i64]] = 1.0;
-                        }
-                    }
-                }
+                let idx_black = row * 8 + col;
+                let idx_white = 64 + idx_black;
+                input_tensor[[i as i64, 0, row as i64, col as i64]] = state[idx_black];
+                input_tensor[[i as i64, 1, row as i64, col as i64]] = state[idx_white];
             }
         }
     }
 
-    // 2️⃣ Run one forward pass for the batch
     let outputs = model.run(ort::inputs!(input_tensor))?;
 
-    // 3️⃣ Extract policy and value outputs
-    let policy_tensor_dyn = outputs[0].try_extract_array::<f32>()?; // IxDyn
-    let value_tensor_dyn = outputs[1].try_extract_array::<f32>()?;  // IxDyn
+    let policy_tensor_dyn = outputs[0].try_extract_array::<f32>()?;
+    let value_tensor_dyn = outputs[1].try_extract_array::<f32>()?;
 
-    // Convert dynamic arrays into 2D arrays
     let policy_tensor = policy_tensor_dyn.to_shape((batch_size, 64)).unwrap();
     let value_tensor = value_tensor_dyn.to_shape((batch_size, 1)).unwrap();
 
     let mut results = Vec::with_capacity(batch_size);
-
     for i in 0..batch_size {
-        // Extract policy for this game
         let policy_flat: Vec<f32> = policy_tensor.row(i).to_vec();
+        let move_probs: Vec<PolicyElement> = policy_flat
+            .into_iter()
+            .enumerate()
+            .map(|(idx, p)| ( (idx / 8, idx % 8), p ))
+            .collect();
 
-        // Filter to legal moves
-        let legal = games[i].legal_moves(players[i]);
-        let mut move_probs = Vec::with_capacity(legal.len());
-        for (row, col) in legal {
-            let idx = row * 8 + col;
-            move_probs.push(((row, col), policy_flat[idx]));
-        }
-
-        let value = value_tensor[[i, 0]]; // scalar evaluation
+        let value = value_tensor[[i, 0]];
         results.push((move_probs, value));
     }
 

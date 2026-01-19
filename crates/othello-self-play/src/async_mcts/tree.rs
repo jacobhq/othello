@@ -41,6 +41,7 @@ impl Node {
 }
 
 /// Arena-style tree for MCTS
+#[derive(Clone)]
 pub struct Tree {
     nodes: Vec<Arc<Node>>,
 }

@@ -30,7 +30,7 @@ struct Args {
 
     /// Optional ONNX model path (for NN-guided MCTS)
     #[arg(short, long)]
-    model: Option<PathBuf>,
+    model: PathBuf,
 
     /// Optional previous model path (for evaluation)
     #[arg(long)]

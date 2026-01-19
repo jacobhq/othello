@@ -93,7 +93,7 @@ pub fn generate_self_play_data(
             let mut policy = vec![0.0f32; 64];
             let visits = tree.child_visits(tree.root());
 
-            let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum().max(1);
+            let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
 
             for (action, count) in visits {
                 policy[action] = count as f32 / total_visits as f32;
@@ -122,7 +122,7 @@ pub fn generate_self_play_data(
             let row = action / 8;
             let col = action % 8;
 
-            game.play(row, col, current_player)?;
+            game.play(row, col, current_player);
             current_player = match current_player {
                 Color::Black => Color::White,
                 Color::White => Color::Black,
@@ -169,6 +169,7 @@ pub fn start_gpu_worker(
             load_model(model_path.to_str().unwrap()).expect("failed to load model");
 
         loop {
+            // Pop a batch of requests
             let batch = gpu.pop_batch(max_batch_size);
 
             if batch.is_empty() {
@@ -176,23 +177,19 @@ pub fn start_gpu_worker(
                 continue;
             }
 
-            let mut games = Vec::with_capacity(batch.len());
-            let mut players = Vec::with_capacity(batch.len());
-            let mut ids = Vec::with_capacity(batch.len());
+            // Extract states and IDs from requests
+            let states: Vec<Vec<f32>> = batch.iter().map(|req| req.state.clone()).collect();
+            let ids: Vec<u64> = batch.iter().map(|req| req.id).collect();
 
-            for req in batch {
-                games.push(req.game);
-                players.push(req.player);
-                ids.push(req.id);
-            }
+            // Evaluate the batch with the neural network
+            let evals = nn_eval_batch(&mut model, &states)
+                .expect("nn_eval_batch failed");
 
-            let evals =
-                nn_eval_batch(&mut model, &games, &players).expect("nn_eval_batch failed");
-
+            // Convert NN output to EvalResults
             let mut results = Vec::with_capacity(evals.len());
-
-            for ((policy, value), id) in evals.into_iter().zip(ids) {
-                let policy_flat = policy
+            for ((policy_map, value), id) in evals.into_iter().zip(ids) {
+                // Flatten the policy map to (action_index, probability) pairs
+                let policy_flat: Vec<(usize, f32)> = policy_map
                     .into_iter()
                     .map(|((r, c), p)| (r * 8 + c, p))
                     .collect();
@@ -204,6 +201,7 @@ pub fn start_gpu_worker(
                 });
             }
 
+            // Push results back to the queue
             gpu.push_results(results);
         }
     })
