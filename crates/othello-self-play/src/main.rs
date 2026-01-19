@@ -4,7 +4,6 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
 
-mod mcts;
 mod neural_net;
 mod write_data;
 mod distr;

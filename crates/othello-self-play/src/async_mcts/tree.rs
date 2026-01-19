@@ -1,234 +1,185 @@
-use crate::eval_queue::EvalQueue;
-use crate::neural_net::PolicyElement;
-use atomic_float::AtomicF32;
-use othello::othello_game::{Color, OthelloGame};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-const VIRTUAL_LOSS: u32 = 1;
-const PUCT_C: f32 = 1.414;
+/// Index into the tree arena
+pub type NodeId = usize;
 
-pub(crate) type NodeRef = Arc<Node>;
-
-pub(crate) struct Node {
-    state: OthelloGame,
-    player: Color,
-
-    parent: Option<NodeRef>,
-    pub(crate) action: Option<(usize, usize)>,
-
-    pub(crate) children: Mutex<Vec<NodeRef>>,
-    pub(crate) stats: NodeStats,
-    expanded: AtomicBool,
+/// A single MCTS node
+pub struct Node {
+    inner: Mutex<NodeInner>,
 }
 
-pub(crate) struct NodeStats {
-    pub(crate) visits: AtomicU32,
-    value_sum: AtomicF32,
-    virtual_loss: AtomicU32,
+struct NodeInner {
+    /// Prior probability from the policy network
     prior: f32,
+
+    /// Visit count
+    visits: u32,
+
+    /// Total value
+    value_sum: f32,
+
+    /// Children: action -> node id
+    children: HashMap<usize, NodeId>,
+
+    /// Has this node been expanded yet?
+    expanded: bool,
 }
 
-pub(crate) struct PendingSimulation {
-    leaf: NodeRef,
-    path: Vec<NodeRef>,
-    pub(crate) reply: mpsc::Receiver<(Vec<PolicyElement>, f32)>,
+impl Node {
+    fn new(prior: f32) -> Self {
+        Self {
+            inner: Mutex::new(NodeInner {
+                prior,
+                visits: 0,
+                value_sum: 0.0,
+                children: HashMap::new(),
+                expanded: false,
+            }),
+        }
+    }
 }
 
-pub(crate) fn launch_simulation(root: &NodeRef, eval: &EvalQueue) -> Option<PendingSimulation> {
-    let mut node = Arc::clone(root);
-    let mut path = Vec::new();
+/// Arena-style tree for MCTS
+pub struct Tree {
+    nodes: Vec<Arc<Node>>,
+}
 
-    loop {
-        path.push(Arc::clone(&node));
+impl Tree {
+    /// Create a new tree with a single root node
+    pub fn new() -> Self {
+        let root = Arc::new(Node::new(1.0));
+        Self { nodes: vec![root] }
+    }
 
-        if node.state.game_over() {
-            let value = terminal_value(&node.state, node.player);
+    /// Get root node id
+    pub fn root(&self) -> NodeId {
+        0
+    }
 
-            for n in &path {
-                n.stats
-                    .virtual_loss
-                    .fetch_add(VIRTUAL_LOSS, Ordering::Relaxed);
-            }
+    /// Get a node by id
+    pub fn node(&self, id: NodeId) -> Arc<Node> {
+        Arc::clone(&self.nodes[id])
+    }
 
-            complete_simulation(
-                PendingSimulation {
-                    leaf: node,
-                    path,
-                    reply: mpsc::channel().1, // dummy
-                },
-                Vec::new(),
-                value,
-            );
+    /// Add a new child node, returns its NodeId
+    pub fn add_child(&mut self, prior: f32) -> NodeId {
+        let id = self.nodes.len();
+        self.nodes.push(Arc::new(Node::new(prior)));
+        id
+    }
 
+    /// Expand a node with NN policy output
+    ///
+    /// `policy` is a sparse list of (action, probability)
+    pub fn expand(
+        &mut self,
+        node_id: NodeId,
+        policy: &[(usize, f32)],
+    ) {
+        let node = self.node(node_id);
+        let mut inner = node.inner.lock().unwrap();
+
+        if inner.expanded {
+            return;
+        }
+
+        for &(action, prob) in policy {
+            let child_id = self.add_child(prob);
+            inner.children.insert(action, child_id);
+        }
+
+        inner.expanded = true;
+    }
+
+    /// Select the best child using PUCT
+    pub fn select_child(
+        &self,
+        node_id: NodeId,
+        c_puct: f32,
+    ) -> Option<(usize, NodeId)> {
+        let node = self.node(node_id);
+        let inner = node.inner.lock().unwrap();
+
+        if inner.children.is_empty() {
             return None;
         }
 
-        // Try to expand once
-        if !node.expanded.load(Ordering::Acquire)
-            && node
-                .expanded
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-        {
-            // We "own" expansion — enqueue eval
-            let (tx, rx) = mpsc::channel();
-            eval.push_request_blocking(crate::eval_queue::EvalRequest {
-                state: node.state,
-                player: node.player,
-                reply: tx,
-            });
+        let parent_visits = inner.visits.max(1) as f32;
 
-            // Apply virtual loss to path
-            for n in &path {
-                n.stats
-                    .virtual_loss
-                    .fetch_add(VIRTUAL_LOSS, Ordering::Relaxed);
-            }
+        let mut best_score = f32::NEG_INFINITY;
+        let mut best = None;
 
-            return Some(PendingSimulation {
-                leaf: node,
-                path,
-                reply: rx,
-            });
-        }
+        for (&action, &child_id) in &inner.children {
+            let child = self.node(child_id);
+            let child_inner = child.inner.lock().unwrap();
 
-        let best = {
-            let children = node.children.lock().unwrap();
-            if children.is_empty() {
-                return None;
-            }
-
-            let parent_visits = node.stats.visits.load(Ordering::Relaxed).max(1);
-
-            children
-                .iter()
-                .max_by(|a, b| {
-                    let sa = &a.stats;
-                    let sb = &b.stats;
-                    puct_score(parent_visits, sa, PUCT_C)
-                        .partial_cmp(&puct_score(parent_visits, sb, PUCT_C))
-                        .unwrap()
-                })
-                .unwrap()
-                .clone()
-        }; // 👈 children lock DROPPED HERE
-
-        best.stats
-            .virtual_loss
-            .fetch_add(VIRTUAL_LOSS, Ordering::Relaxed);
-
-        node = best;
-    }
-
-    None
-}
-
-pub(crate) fn complete_simulation(sim: PendingSimulation, policy: Vec<PolicyElement>, value: f32) {
-    let leaf = &sim.leaf;
-
-    // 1. Expand if non-terminal
-    if !leaf.state.game_over() {
-        let mut children = leaf.children.lock().unwrap();
-
-        // Expand exactly once
-        if children.is_empty() {
-            for p in policy {
-                let mut next_state = leaf.state.clone();
-                next_state.play(p.0.0, p.0.1, leaf.player);
-
-                let child = Arc::new(Node {
-                    state: next_state,
-                    player: leaf.player.opponent(),
-                    parent: Some(Arc::clone(leaf)),
-                    action: Some((p.0.0, p.0.1)),
-                    children: Mutex::new(Vec::new()),
-                    expanded: AtomicBool::new(false),
-                    stats: NodeStats {
-                        visits: AtomicU32::new(0),
-                        value_sum: AtomicF32::new(0.0),
-                        virtual_loss: AtomicU32::new(0),
-                        prior: p.1,
-                    },
-                });
-
-                children.push(child);
-            }
-        }
-    }
-
-    // 2. Backpropagation
-    for node in sim.path.into_iter().rev() {
-        // Remove virtual loss
-        node.stats
-            .virtual_loss
-            .fetch_sub(VIRTUAL_LOSS, Ordering::Relaxed);
-
-        node.stats.visits.fetch_add(1, Ordering::Relaxed);
-
-        let signed_value = if node.player == leaf.player {
-            value
-        } else {
-            -value
-        };
-
-        node.stats
-            .value_sum
-            .fetch_add(signed_value, Ordering::Relaxed);
-    }
-}
-
-pub(crate) fn puct_score(parent_visits: u32, child: &NodeStats, c: f32) -> f32 {
-    let visits = child.visits.load(Ordering::Relaxed) + child.virtual_loss.load(Ordering::Relaxed);
-
-    let q = if visits > 0 {
-        child.value_sum.load(Ordering::Relaxed) / visits as f32
-    } else {
-        0.0
-    };
-
-    let u = c * child.prior * (parent_visits as f32).sqrt() / (1.0 + visits as f32);
-
-    q + u
-}
-
-pub(crate) fn terminal_value(state: &OthelloGame, player: Color) -> f32 {
-    let (white, black) = state.score();
-    match player {
-        Color::White => {
-            if white > black {
-                1.0
-            } else if white < black {
-                -1.0
-            } else {
+            let q = if child_inner.visits == 0 {
                 0.0
+            } else {
+                child_inner.value_sum / child_inner.visits as f32
+            };
+
+            let u = c_puct
+                * child_inner.prior
+                * (parent_visits.sqrt() / (1.0 + child_inner.visits as f32));
+
+            let score = q + u;
+
+            if score > best_score {
+                best_score = score;
+                best = Some((action, child_id));
             }
         }
-        Color::Black => {
-            if black > white {
-                1.0
-            } else if black < white {
-                -1.0
-            } else {
-                0.0
-            }
+
+        best
+    }
+
+    /// Apply virtual loss during selection
+    pub fn add_virtual_loss(&self, node_id: NodeId, loss: f32) {
+        let node = self.node(node_id);
+        let mut inner = node.inner.lock().unwrap();
+        inner.visits += 1;
+        inner.value_sum -= loss;
+    }
+
+    /// Revert virtual loss
+    pub fn revert_virtual_loss(&self, node_id: NodeId, loss: f32) {
+        let node = self.node(node_id);
+        let mut inner = node.inner.lock().unwrap();
+        inner.visits -= 1;
+        inner.value_sum += loss;
+    }
+
+    /// Backpropagate evaluation result
+    pub fn backprop(&self, path: &[NodeId], value: f32) {
+        let mut v = value;
+
+        for &node_id in path.iter().rev() {
+            let node = self.node(node_id);
+            let mut inner = node.inner.lock().unwrap();
+
+            inner.visits += 1;
+            inner.value_sum += v;
+
+            // value is from current player's perspective
+            v = -v;
         }
     }
-}
 
-pub(crate) fn new_root(state: OthelloGame, player: Color) -> NodeRef {
-    Arc::new(Node {
-        state,
-        player,
-        parent: None,
-        action: None,
-        children: Mutex::new(Vec::new()),
-        expanded: AtomicBool::new(false),
-        stats: NodeStats {
-            visits: AtomicU32::new(0),
-            value_sum: AtomicF32::new(0.0),
-            virtual_loss: AtomicU32::new(0),
-            prior: 1.0, // dummy
-        },
-    })
+    /// Get visit count for a child action (used for final policy)
+    pub fn child_visits(&self, node_id: NodeId) -> Vec<(usize, u32)> {
+        let node = self.node(node_id);
+        let inner = node.inner.lock().unwrap();
+
+        inner
+            .children
+            .iter()
+            .map(|(&action, &child_id)| {
+                let child = self.node(child_id);
+                let c = child.inner.lock().unwrap();
+                (action, c.visits)
+            })
+            .collect()
+    }
 }

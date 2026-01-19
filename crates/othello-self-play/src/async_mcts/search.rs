@@ -1,78 +1,129 @@
-use crate::async_mcts::tree::{NodeRef, PendingSimulation, complete_simulation, launch_simulation};
-use crate::eval_queue::EvalQueue;
-use rayon::prelude::*;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, mpsc};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use othello::othello_game::{Color, OthelloError};
+use crate::eval_queue::{EvalRequest, EvalResult, SearchHandle};
+use crate::async_mcts::tree::{NodeId, Tree};
 
-pub fn mcts_search_parallel(root: NodeRef, eval: Arc<EvalQueue>, total_simulations: usize) {
-    let threads = rayon::current_num_threads();
-    let sims_per_thread = total_simulations / threads.max(1);
+/// Global counter for eval request ids
+static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
 
-    (0..threads).into_par_iter().for_each(|_| {
-        mcts_worker(root.clone(), eval.clone(), sims_per_thread);
-    });
+pub trait Game: Clone + Send + Sync + 'static {
+    /// Returns legal actions as action indices
+    fn legal_moves(&self, player: Color) -> Vec<(usize, usize)>;
+
+    /// Apply action and return next state
+    fn play(&mut self, row: usize, col: usize, player: Color) -> Result<(), OthelloError>;
+
+    /// Is terminal?
+    fn is_terminal(&self) -> bool;
+
+    /// Terminal value from current player's perspective
+    fn terminal_value(&self) -> f32;
+
+    /// Encode state for NN
+    fn encode(&self) -> Vec<f32>;
 }
 
-fn mcts_worker(root: NodeRef, eval: Arc<EvalQueue>, max_sims: usize) {
-    let mut launched = 0usize;
-    let mut in_flight: Vec<PendingSimulation> = Vec::new();
 
-    while launched < max_sims {
-        // Try to launch
-        if let Some(sim) = launch_simulation(&root, &eval) {
-            in_flight.push(sim);
-            launched += 1;
+/// Single search worker (run this on multiple threads)
+pub struct SearchWorker<G: Game> {
+    pub tree: Tree,
+    pub eval_queue: SearchHandle,
+    pub c_puct: f32,
+    pub virtual_loss: f32,
+
+    /// Pending evals: request_id -> (path, leaf_node, player_value_sign)
+    pending: HashMap<u64, PendingEval<G>>,
+}
+
+struct PendingEval<G: Game> {
+    path: Vec<NodeId>,
+    leaf: NodeId,
+    state: G,
+}
+
+impl<G: Game> SearchWorker<G> {
+    pub fn new(tree: Tree, eval_queue: SearchHandle) -> Self {
+        Self {
+            tree,
+            eval_queue,
+            c_puct: 1.5,
+            virtual_loss: 1.0,
+            pending: HashMap::new(),
         }
+    }
 
-        // Poll finished sims
-        let mut i = 0;
-        while i < in_flight.len() {
-            match in_flight[i].reply.try_recv() {
-                Ok((policy, value)) => {
-                    let sim = in_flight.swap_remove(i);
-                    complete_simulation(sim, policy, value);
-                }
-                Err(mpsc::TryRecvError::Empty) => {
-                    i += 1;
-                }
-                Err(_) => {
-                    i += 1;
-                }
+    /// Run one MCTS simulation
+    pub fn simulate(&mut self, root_state: &G) {
+        // 1. Selection
+        let mut path = Vec::new();
+        let mut node_id = self.tree.root();
+        let mut state = root_state.clone();
+
+        loop {
+            path.push(node_id);
+
+            if state.is_terminal() {
+                let value = state.terminal_value();
+                self.tree.backprop(&path, value);
+                return;
+            }
+
+            if let Some((action, child)) =
+                self.tree.select_child(node_id, self.c_puct)
+            {
+                // Apply virtual loss
+                self.tree.add_virtual_loss(child, self.virtual_loss);
+
+                state = state.play(action);
+                node_id = child;
+            } else {
+                // Leaf (unexpanded)
+                break;
             }
         }
+
+        // 2. Leaf handling
+        let leaf = node_id;
+
+        // Create eval request
+        let id = NEXT_EVAL_ID.fetch_add(1, Ordering::Relaxed);
+        let request = EvalRequest {
+            id,
+            state: state.encode(),
+        };
+
+        self.eval_queue.push_request(request);
+
+        self.pending.insert(
+            id,
+            PendingEval {
+                path,
+                leaf,
+                state,
+            },
+        );
     }
 
-    // Drain remaining
-    for sim in in_flight {
-        if let Ok((policy, value)) = sim.reply.recv() {
-            complete_simulation(sim, policy, value);
+    /// Opportunistically consume NN eval results
+    pub fn poll_results(&mut self) {
+        while let Some(result) = self.eval_queue.try_pop_result() {
+            self.handle_eval_result(result);
         }
     }
-}
 
-pub fn select_action(root: &NodeRef, temperature: f32) -> (usize, usize) {
-    let children = root.children.lock().unwrap();
+    fn handle_eval_result(&mut self, result: EvalResult) {
+        let pending = match self.pending.remove(&result.id) {
+            Some(p) => p,
+            None => return, // stale / duplicate
+        };
 
-    if temperature == 0.0 {
-        // Argmax
-        children
-            .iter()
-            .max_by_key(|c| c.stats.visits.load(Ordering::Relaxed))
-            .and_then(|c| c.action)
-            .unwrap()
-    } else {
-        // Softmax over visits
-        use rand::distr::Distribution;
-        use rand::distr::weighted::WeightedIndex;
+        let PendingEval { path, leaf, state } = pending;
 
-        let weights: Vec<f32> = children
-            .iter()
-            .map(|c| (c.stats.visits.load(Ordering::Relaxed) as f32).powf(1.0 / temperature))
-            .collect();
+        // Expand leaf
+        self.tree.expand(leaf, &result.policy);
 
-        let dist = WeightedIndex::new(&weights).unwrap();
-        let idx = dist.sample(&mut rand::rng());
-
-        children[idx].action.unwrap()
+        // Backprop value
+        self.tree.backprop(&path, result.value);
     }
 }

@@ -1,92 +1,198 @@
-use crate::neural_net::{nn_eval, nn_eval_batch, PolicyElement};
-use ort::session::Session;
-use othello::othello_game::{Color, OthelloGame};
-use std::collections::VecDeque;
-use std::sync::{mpsc, Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use crossbeam::queue::SegQueue;
+use std::sync::Arc;
 
-pub(crate) struct EvalRequest {
-    pub(crate) state: OthelloGame,
-    pub(crate) player: Color,
-    pub(crate) reply: mpsc::Sender<(Vec<PolicyElement>, f32)>,
+/// Element of a policy vector: (action_index, probability)
+pub type PolicyElement = (usize, f32);
+
+/// Request from search thread to GPU worker for neural network evaluation
+#[derive(Clone)]
+pub struct EvalRequest {
+    /// Unique identifier for this evaluation request
+    pub id: u64,
+    /// Game state representation (flattened board state)
+    pub state: Vec<f32>,
 }
 
-pub(crate) struct EvalQueue {
-    requests: Mutex<VecDeque<EvalRequest>>,
-    cv: Condvar,
-    max_size: usize,
+/// Response from GPU worker back to search threads
+#[derive(Clone)]
+pub struct EvalResult {
+    /// Matches the id from EvalRequest
+    pub id: u64,
+    /// Policy vector: sparse representation of (action, probability) pairs
+    pub policy: Vec<PolicyElement>,
+    /// Value estimate for the position [-1, 1]
+    pub value: f32,
+}
+
+/// Lock-free queue system for bidirectional communication between
+/// search threads and GPU worker
+pub struct EvalQueue {
+    /// Search threads push requests here (N producers)
+    requests: Arc<SegQueue<EvalRequest>>,
+    /// GPU worker pushes results here (1 producer)
+    results: Arc<SegQueue<EvalResult>>,
 }
 
 impl EvalQueue {
-    pub(crate) fn new(max_size: usize) -> Self {
+    /// Create a new evaluation queue system
+    pub fn new() -> Self {
         Self {
-            requests: Mutex::new(VecDeque::new()),
-            cv: Condvar::new(),
-            max_size
+            requests: Arc::new(SegQueue::new()),
+            results: Arc::new(SegQueue::new()),
         }
     }
 
-    pub(crate) fn push_request_blocking(&self, req: EvalRequest) {
-        let mut q = self.requests.lock().unwrap();
-
-        while q.len() >= self.max_size {
-            q = self.cv.wait(q).unwrap();
+    /// Get a handle for search threads (can be cloned across threads)
+    pub fn search_handle(&self) -> SearchHandle {
+        SearchHandle {
+            requests: Arc::clone(&self.requests),
+            results: Arc::clone(&self.results),
         }
-
-        q.push_back(req);
-        self.cv.notify_one();
     }
 
-    fn pop_request_batch(&self, max: usize) -> Vec<EvalRequest> {
-        let mut q = self.requests.lock().unwrap();
-
-        // Wait until at least ONE request exists
-        while q.is_empty() {
-            q = self.cv.wait(q).unwrap();
+    /// Get a handle for the GPU worker (single consumer/producer)
+    pub fn gpu_handle(&self) -> GpuHandle {
+        GpuHandle {
+            requests: Arc::clone(&self.requests),
+            results: Arc::clone(&self.results),
         }
+    }
+}
 
-        let start = Instant::now();
-        let flush_after = Duration::from_millis(1);
+impl Default for EvalQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        // Wait briefly for more requests to arrive
-        while q.len() < max && start.elapsed() < flush_after {
-            let timeout = flush_after - start.elapsed();
-            let (guard, _) = self.cv.wait_timeout(q, timeout).unwrap();
-            q = guard;
+/// Handle for search threads to interact with the queue
+#[derive(Clone)]
+pub struct SearchHandle {
+    requests: Arc<SegQueue<EvalRequest>>,
+    results: Arc<SegQueue<EvalResult>>,
+}
+
+impl SearchHandle {
+    /// Push an evaluation request (non-blocking)
+    pub fn push_request(&self, request: EvalRequest) {
+        self.requests.push(request);
+    }
+
+    /// Opportunistically pop a result if available (non-blocking)
+    /// Returns None if no results are ready
+    pub fn try_pop_result(&self) -> Option<EvalResult> {
+        self.results.pop()
+    }
+
+    /// Check if there are any results available without popping
+    pub fn has_results(&self) -> bool {
+        !self.results.is_empty()
+    }
+}
+
+/// Handle for GPU worker to interact with the queue
+pub struct GpuHandle {
+    requests: Arc<SegQueue<EvalRequest>>,
+    results: Arc<SegQueue<EvalResult>>,
+}
+
+impl GpuHandle {
+    /// Pop a single request if available (non-blocking)
+    pub fn try_pop_request(&self) -> Option<EvalRequest> {
+        self.requests.pop()
+    }
+
+    /// Pop multiple requests up to max_batch_size for batching
+    /// Returns empty vec if no requests available
+    pub fn pop_batch(&self, max_batch_size: usize) -> Vec<EvalRequest> {
+        let mut batch = Vec::with_capacity(max_batch_size);
+
+        for _ in 0..max_batch_size {
+            if let Some(req) = self.requests.pop() {
+                batch.push(req);
+            } else {
+                break;
+            }
         }
-
-        let n = q.len().min(max);
-        let batch: Vec<_> = q.drain(..n).collect();
-
-        // Wake producers waiting for space
-        self.cv.notify_all();
 
         batch
     }
 
+    /// Push evaluation results back (non-blocking)
+    pub fn push_results(&self, results: Vec<EvalResult>) {
+        for result in results {
+            self.results.push(result);
+        }
+    }
+
+    /// Check if there are pending requests
+    pub fn has_requests(&self) -> bool {
+        !self.requests.is_empty()
+    }
+
+    /// Get approximate number of pending requests (may be stale)
+    pub fn pending_requests(&self) -> usize {
+        // Note: This is an approximation due to concurrent access
+        self.requests.len()
+    }
 }
 
-pub(crate) fn gpu_worker(
-    queue: Arc<EvalQueue>,
-    mut model: Session,
-    batch_size: usize,
-) {
-    loop {
-        // 1️⃣ Grab up to `batch_size` pending requests
-        let batch = queue.pop_request_batch(batch_size);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        // 2️⃣ Collect states and players
-        let states: Vec<OthelloGame> = batch.iter().map(|r| r.state).collect();
-        let players: Vec<Color> = batch.iter().map(|r| r.player).collect();
+    #[test]
+    fn test_basic_flow() {
+        let queue = EvalQueue::new();
+        let search = queue.search_handle();
+        let gpu = queue.gpu_handle();
 
-        // 3️⃣ Evaluate all at once on the GPU
-        let results: Vec<(Vec<PolicyElement>, f32)> =
-            nn_eval_batch(&mut model, &states, &players)
-                .expect("Batch NN eval failed");
+        // Search thread pushes request
+        let req = EvalRequest {
+            id: 1,
+            state: vec![0.0; 64],
+        };
+        search.push_request(req);
 
-        // 4️⃣ Send results back to each request
-        for (req, (policy, value)) in batch.into_iter().zip(results.into_iter()) {
-            let _ = req.reply.send((policy, value));
+        // GPU worker pops request
+        let batch = gpu.pop_batch(32);
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].id, 1);
+
+        // GPU worker pushes result
+        let result = EvalResult {
+            id: 1,
+            policy: vec![(0, 0.5), (1, 0.3)],
+            value: 0.2,
+        };
+        gpu.push_results(vec![result]);
+
+        // Search thread pops result
+        let res = search.try_pop_result().unwrap();
+        assert_eq!(res.id, 1);
+        assert_eq!(res.value, 0.2);
+    }
+
+    #[test]
+    fn test_batching() {
+        let queue = EvalQueue::new();
+        let search = queue.search_handle();
+        let gpu = queue.gpu_handle();
+
+        // Push multiple requests
+        for i in 0..10 {
+            search.push_request(EvalRequest {
+                id: i,
+                state: vec![0.0; 64],
+            });
         }
+
+        // Pop batch of 5
+        let batch = gpu.pop_batch(5);
+        assert_eq!(batch.len(), 5);
+
+        // Pop remaining
+        let batch2 = gpu.pop_batch(10);
+        assert_eq!(batch2.len(), 5);
     }
 }

@@ -1,16 +1,17 @@
-use std::fs::File;
-use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 
-use crate::async_mcts::{mcts_search_parallel, new_root, select_action};
-use crate::eval_queue::{EvalQueue, gpu_worker};
-use crate::neural_net::load_model;
 use anyhow::Result;
+use rand::distr::weighted::WeightedIndex;
+use rand::prelude::*;
+use rand::rng;
+use crate::async_mcts::search::SearchWorker;
+use crate::async_mcts::tree::Tree;
+use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
+use crate::neural_net::{load_model, nn_eval_batch};
+
 use othello::othello_game::{Color, OthelloGame};
-use serde::Serialize;
-use tracing::debug;
 
 /// Represents a single self-play training sample
 #[derive(Clone)]
@@ -20,203 +21,190 @@ pub struct Sample {
     pub value: f32,                // final game result
 }
 
-/// MCTS statistics for logging
-#[derive(Clone, Serialize)]
-pub struct MctsStats {
-    pub game_id: usize,
-    pub move_idx: usize,
-    pub entropy: f32,
-    pub max_visit_frac: f32,
-    pub q_selected: f32,
-}
-
-/// Public entry point used by main.rs
 pub fn generate_self_play_data(
     prefix: &str,
     games: usize,
     sims_per_move: u32,
-    model: Option<PathBuf>,
+    model: PathBuf,
 ) -> Result<Vec<Sample>> {
-    let model_path = model
-        .as_ref()
-        .expect("Async MCTS requires a neural network model")
-        .to_str()
-        .unwrap()
-        .to_string();
+    let mut all_samples = Vec::new();
 
-    // 1. Create a single EvalQueue shared across all games
-    let eval_queue = Arc::new(EvalQueue::new(4096));
+    // ------------------------------------------------------------
+    // Shared NN eval infrastructure
+    // ------------------------------------------------------------
 
-    // 2. Spawn GPU worker(s)
-    let gpu_workers = 1; // adjust if GPU allows
-    for _ in 0..gpu_workers {
-        let queue = eval_queue.clone();
-        let model = load_model(&model_path)?;
-        thread::spawn(move || {
-            gpu_worker(queue, model, 1024);
-        });
-    }
+    let eval_queue = EvalQueue::new();
 
-    // 3. Run self-play games in parallel
-    let results: Vec<(Vec<Sample>, Vec<MctsStats>)> = (0..games)
-        .map(|game_idx| run_single_game(game_idx, eval_queue.clone(), sims_per_move as usize))
-        .collect();
+    // Start GPU worker once
+    let _gpu_thread = start_gpu_worker(eval_queue.gpu_handle(), model, 128);
 
-    // Flatten all the samples and apply symmetries
-    let all_samples: Vec<Sample> = results
-        .iter()
-        .flat_map(|(s, _)| {
-            s.clone()
-                .into_iter()
-                .flat_map(crate::symmetry::get_symmetries)
-        })
-        .collect();
-    let all_stats: Vec<MctsStats> = results.iter().flat_map(|(_, st)| st.clone()).collect();
+    // ------------------------------------------------------------
+    // Self-play games
+    // ------------------------------------------------------------
 
-    // Write MCTS stats to JSONL
-    {
-        let file = File::create(format!("{}_mcts_stats.jsonl", prefix))?;
-        let mut writer = BufWriter::new(file);
+    for game_idx in 0..games {
+        let mut game = OthelloGame::new();
+        let mut current_player = Color::Black;
 
-        for stat in &all_stats {
-            serde_json::to_writer(&mut writer, stat)?;
-            writer.write_all(b"\n")?;
+        // Store (sample, player_at_time)
+        let mut game_samples: Vec<(Sample, Color)> = Vec::new();
+
+        while !game.game_over() {
+            // -----------------------------------------------------
+            // MCTS setup
+            // -----------------------------------------------------
+
+            let tree = Arc::new(Tree::new());
+            let search_handle = eval_queue.search_handle();
+
+            let num_threads = num_cpus::get().max(1);
+            let barrier = Arc::new(Barrier::new(num_threads));
+
+            let mut workers = Vec::new();
+
+            for _ in 0..num_threads {
+                let tree = Arc::clone(&tree);
+                let handle = search_handle.clone();
+                let barrier = Arc::clone(&barrier);
+                let root_game = game.clone();
+
+                workers.push(thread::spawn(move || {
+                    let mut worker = SearchWorker::new((*tree).clone(), handle);
+
+                    barrier.wait();
+
+                    let sims_per_thread = sims_per_move / num_threads as u32;
+
+                    for _ in 0..sims_per_thread {
+                        worker.simulate(&root_game);
+                        worker.poll_results();
+                    }
+                }));
+            }
+
+            for w in workers {
+                w.join().unwrap();
+            }
+
+            // -----------------------------------------------------
+            // Extract policy from visit counts
+            // -----------------------------------------------------
+
+            let mut policy = vec![0.0f32; 64];
+            let visits = tree.child_visits(tree.root());
+
+            let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum().max(1);
+
+            for (action, count) in visits {
+                policy[action] = count as f32 / total_visits as f32;
+            }
+
+            // -----------------------------------------------------
+            // Store training sample
+            // -----------------------------------------------------
+
+            let sample = Sample {
+                state: game.encode(current_player),
+                policy: policy.clone(),
+                value: 0.0,
+            };
+
+            game_samples.push((sample, current_player));
+
+            // -----------------------------------------------------
+            // Play move (sample from policy)
+            // -----------------------------------------------------
+
+            let dist = WeightedIndex::new(&policy)?;
+            let mut rng = rng();
+            let action = dist.sample(&mut rng);
+
+            let row = action / 8;
+            let col = action % 8;
+
+            game.play(row, col, current_player)?;
+            current_player = match current_player {
+                Color::Black => Color::White,
+                Color::White => Color::Black,
+            };
         }
-        writer.flush()?;
+
+        // ---------------------------------------------------------
+        // Backfill values
+        // ---------------------------------------------------------
+
+        let (black_score, white_score) = game.score();
+        let outcome = match black_score.cmp(&white_score) {
+            std::cmp::Ordering::Greater => 1.0,
+            std::cmp::Ordering::Less => -1.0,
+            std::cmp::Ordering::Equal => 0.0,
+        };
+
+        for (mut sample, player) in game_samples {
+            sample.value = match player {
+                Color::Black => outcome,
+                Color::White => -outcome,
+            };
+            all_samples.push(sample);
+        }
+
+        println!(
+            "[{}] finished game {} (total samples {})",
+            prefix,
+            game_idx,
+            all_samples.len()
+        );
     }
 
     Ok(all_samples)
 }
 
-fn run_single_game(
-    game_id: usize,
-    eval_queue: Arc<EvalQueue>,
-    sims_per_move: usize,
-) -> (Vec<Sample>, Vec<MctsStats>) {
-    debug!("Starting self-play game {}", game_id);
+pub fn start_gpu_worker(
+    gpu: GpuHandle,
+    model_path: PathBuf,
+    max_batch_size: usize,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut model =
+            load_model(model_path.to_str().unwrap()).expect("failed to load model");
 
-    let mut samples = Vec::new();
-    let mut stats = Vec::new();
-    let mut game = OthelloGame::new();
-    let mut player = Color::Black;
-    let mut move_count = 0;
+        loop {
+            let batch = gpu.pop_batch(max_batch_size);
 
-    while !game.game_over() {
-        let root = new_root(game, player);
-
-        mcts_search_parallel(root.clone(), eval_queue.clone(), sims_per_move);
-
-        // Extract policy and move stats
-        let (policy, entropy, max_visit_frac, q_selected) =
-            extract_policy_and_stats(&root, move_count < 10);
-
-        stats.push(MctsStats {
-            game_id,
-            move_idx: move_count,
-            entropy,
-            max_visit_frac,
-            q_selected,
-        });
-
-        samples.push(Sample {
-            state: encode_state(&game, player),
-            policy,
-            value: 0.0,
-        });
-
-        let temperature = if move_count < 10 { 1.0 } else { 0.0 };
-        let (row, col) = select_action(&root, temperature);
-
-        game.play(row, col, player);
-        player = player.opponent();
-        move_count += 1;
-    }
-
-    let value = final_value(&game);
-    for (i, sample) in samples.iter_mut().enumerate() {
-        sample.value = if i % 2 == 0 { value } else { -value };
-    }
-
-    debug!("Game {} finished: final value {:.2}", game_id, value);
-
-    (samples, stats)
-}
-
-/// Extract policy probabilities and simple stats for logging
-fn extract_policy_and_stats(
-    root: &crate::async_mcts::NodeRef,
-    add_noise: bool,
-) -> (Vec<f32>, f32, f32, f32) {
-    let mut policy = vec![0.0; 64];
-    let children = root.children.lock().unwrap();
-
-    let mut total_visits: f32 = children
-        .iter()
-        .map(|c| c.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32)
-        .sum();
-
-    if total_visits == 0.0 {
-        for child in children.iter() {
-            let (r, c) = child.action.unwrap();
-            policy[r * 8 + c] = 1.0 / children.len() as f32;
-        }
-        return (policy, 0.0, 0.0, 0.0);
-    }
-
-    let mut visit_counts: Vec<f32> = children
-        .iter()
-        .map(|c| c.stats.visits.load(std::sync::atomic::Ordering::Relaxed) as f32)
-        .collect();
-
-    if add_noise {
-        let epsilon = 0.25;
-        let alpha = 0.3;
-        let noise = crate::distr::dirichlet(alpha, visit_counts.len());
-        for (v, n) in visit_counts.iter_mut().zip(noise.iter()) {
-            *v = (1.0 - epsilon) * *v + epsilon * *n * total_visits;
-        }
-        total_visits = visit_counts.iter().sum();
-    }
-
-    for (child, &v) in children.iter().zip(visit_counts.iter()) {
-        let (r, c) = child.action.unwrap();
-        policy[r * 8 + c] = v / total_visits;
-    }
-
-    let entropy = -policy
-        .iter()
-        .filter(|&&p| p > 0.0)
-        .map(|&p| p * p.ln())
-        .sum::<f32>();
-    let max_visit_frac = visit_counts
-        .iter()
-        .copied()
-        .fold(0.0f32, |a, b| a.max(b / total_visits));
-    let q_selected = 0.0; // placeholder: could be mean Q of selected action if available
-
-    (policy, entropy, max_visit_frac, q_selected)
-}
-
-fn encode_state(game: &OthelloGame, player: Color) -> [[[i32; 8]; 8]; 2] {
-    let mut planes = [[[0; 8]; 8]; 2];
-    for r in 0..8 {
-        for c in 0..8 {
-            if let Some(col) = game.get(r, c) {
-                let idx = if col == player { 0 } else { 1 };
-                planes[idx][r][c] = 1;
+            if batch.is_empty() {
+                std::thread::yield_now();
+                continue;
             }
-        }
-    }
-    planes
-}
 
-fn final_value(game: &OthelloGame) -> f32 {
-    let (white, black) = game.score();
-    if black > white {
-        1.0
-    } else if white > black {
-        -1.0
-    } else {
-        0.0
-    }
+            let mut games = Vec::with_capacity(batch.len());
+            let mut players = Vec::with_capacity(batch.len());
+            let mut ids = Vec::with_capacity(batch.len());
+
+            for req in batch {
+                games.push(req.game);
+                players.push(req.player);
+                ids.push(req.id);
+            }
+
+            let evals =
+                nn_eval_batch(&mut model, &games, &players).expect("nn_eval_batch failed");
+
+            let mut results = Vec::with_capacity(evals.len());
+
+            for ((policy, value), id) in evals.into_iter().zip(ids) {
+                let policy_flat = policy
+                    .into_iter()
+                    .map(|((r, c), p)| (r * 8 + c, p))
+                    .collect();
+
+                results.push(EvalResult {
+                    id,
+                    policy: policy_flat,
+                    value,
+                });
+            }
+
+            gpu.push_results(results);
+        }
+    })
 }
