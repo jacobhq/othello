@@ -361,19 +361,16 @@ pub(crate) fn mcts_search(
                     EvalStatus::NotRequested => {
                         let (tx, rx) = mpsc::channel();
 
-                        // BLOCK until there is room in the GPU queue
-                        queue.push_request_blocking(EvalRequest {
+                        queue.push_request(EvalRequest {
                             state: n.state,
                             player: n.player,
                             reply: tx,
                         });
 
-                        // Mark as pending
                         n.eval_status = EvalStatus::Pending(rx);
 
-                        // IMPORTANT:
-                        // Do NOT increment visits here
-                        // Visits are counted when the eval completes + backprop happens
+                        // Count visit, but do NOT backprop yet
+                        n.visits += 1;
                     }
 
                     EvalStatus::Pending(rx) => {
