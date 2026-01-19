@@ -164,7 +164,7 @@ pub fn generate_self_play_data(
     // Spawn GPU worker thread(s)
     if let (Some(queue), Some(path)) = (eval_queue.clone(), model_path.as_ref()) {
         let num_gpu_workers = 1; // start with 1, increase if GPU allows
-        let batch_size = 256;     // tune for your GPU
+        let batch_size = 64;     // tune for your GPU
 
         for worker_id in 0..num_gpu_workers {
             let q = queue.clone();
