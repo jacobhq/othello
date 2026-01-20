@@ -2,17 +2,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-use anyhow::Result;
-use rand::distr::weighted::WeightedIndex;
-use rand::prelude::*;
-use rand::rng;
-use tracing::debug;
 use crate::async_mcts::search::SearchWorker;
 use crate::async_mcts::tree::Tree;
 use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
 use crate::neural_net::{load_model, nn_eval_batch};
-
+use anyhow::Result;
 use othello::othello_game::{Color, OthelloGame};
+use rand::distr::weighted::WeightedIndex;
+use rand::prelude::*;
+use rand::rng;
+use tracing::debug;
 
 /// Represents a single self-play training sample
 #[derive(Clone)]
@@ -71,7 +70,7 @@ pub fn generate_self_play_data(
                 let tree = Arc::clone(&tree);
                 let handle = search_handle.clone();
                 let barrier = Arc::clone(&barrier);
-                let root_game = game.clone();
+                let root_game = game;
 
                 workers.push(thread::spawn(move || {
                     let mut worker = SearchWorker::new((*tree).clone(), handle);
@@ -96,6 +95,9 @@ pub fn generate_self_play_data(
             // -----------------------------------------------------
             debug!("About to extract policy");
             let mut policy = vec![0.0f32; 64];
+
+            debug!("initial policy {policy:?}");
+
             let visits = tree.child_visits(tree.root());
 
             if visits.is_empty() {
@@ -136,8 +138,9 @@ pub fn generate_self_play_data(
             // Play move (sample from policy)
             // -----------------------------------------------------
             debug!("Making a dist over policy");
-            debug!("{policy:?}");
-            let dist = WeightedIndex::new(&policy)?;
+            debug!("policy {policy:?}");
+            let dist = WeightedIndex::new(&policy).expect("Failed to create index");
+            debug!("dist {dist:?}");
             debug!("Made a dist over policy");
             let mut rng = rng();
             let action = dist.sample(&mut rng);
@@ -188,8 +191,7 @@ pub fn start_gpu_worker(
     max_batch_size: usize,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let mut model =
-            load_model(model_path.to_str().unwrap()).expect("failed to load model");
+        let mut model = load_model(model_path.to_str().unwrap()).expect("failed to load model");
 
         loop {
             // Pop a batch of requests
@@ -205,8 +207,7 @@ pub fn start_gpu_worker(
             let ids: Vec<u64> = batch.iter().map(|req| req.id).collect();
 
             // Evaluate the batch with the neural network
-            let evals = nn_eval_batch(&mut model, &states)
-                .expect("nn_eval_batch failed");
+            let evals = nn_eval_batch(&mut model, &states).expect("nn_eval_batch failed");
 
             // Convert NN output to EvalResults
             let mut results = Vec::with_capacity(evals.len());

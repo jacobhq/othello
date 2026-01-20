@@ -6,6 +6,7 @@ pub type PolicyElement = (usize, f32);
 
 /// Request from search thread to GPU worker for neural network evaluation
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct EvalRequest {
     /// Unique identifier for this evaluation request
     pub id: u64,
@@ -15,6 +16,7 @@ pub struct EvalRequest {
 
 /// Response from GPU worker back to search threads
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct EvalResult {
     /// Matches the id from EvalRequest
     pub id: u64,

@@ -3,6 +3,7 @@ use crate::eval_queue::{EvalRequest, EvalResult, SearchHandle};
 use othello::othello_game::{Color, OthelloError, OthelloGame};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::debug;
 
 /// Global counter for eval request ids
 static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -145,6 +146,8 @@ impl<G: Game> SearchWorker<G> {
             state: state.encode(root_player),
         };
 
+        debug!("{request:?}");
+
         self.eval_queue.push_request(request);
 
         self.pending.insert(id, PendingEval { path, leaf, state });
@@ -153,6 +156,7 @@ impl<G: Game> SearchWorker<G> {
     /// Opportunistically consume NN eval results
     pub fn poll_results(&mut self) {
         while let Some(result) = self.eval_queue.try_pop_result() {
+            debug!("{result:?}");
             self.handle_eval_result(result);
         }
     }
