@@ -6,7 +6,7 @@ use crate::async_mcts::search::SearchWorker;
 use crate::async_mcts::tree::Tree;
 use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
 use crate::neural_net::{load_model, nn_eval_batch};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use othello::othello_game::{Color, Move, OthelloGame};
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
@@ -84,6 +84,11 @@ pub fn generate_self_play_data(
                     // Drain any outstanding evaluations to ensure the shared tree
                     // gets expanded before we read visit counts.
                     while worker.has_pending() || worker.eval_queue.has_results() {
+                        debug!(
+                            "Draining: pending={}, has_results={}",
+                            worker.has_pending(),
+                            worker.eval_queue.has_results()
+                        );
                         worker.poll_results();
                         std::thread::yield_now();
                     }
@@ -100,6 +105,11 @@ pub fn generate_self_play_data(
             let mut policy = vec![0.0f32; 64];
 
             let visits = tree.child_visits(tree.root());
+            debug!(
+                "Tree visits: {} actions with total {} visits",
+                visits.len(),
+                visits.iter().map(|(_, v)| *v).sum::<u32>()
+            );
             let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
             for (action, count) in visits {
                 policy[action] = count as f32 / total_visits as f32;
@@ -128,10 +138,14 @@ pub fn generate_self_play_data(
             } else {
                 // Pull probabilities only for legal moves; if the tree ended up
                 // with zero visits (e.g. sims_per_move too small), fall back to uniform.
-                let mut legal_probs: Vec<f32> = legal_moves
-                    .iter()
-                    .map(|(r, c)| policy[r * 8 + c])
-                    .collect();
+                let mut legal_probs: Vec<f32> =
+                    legal_moves.iter().map(|(r, c)| policy[r * 8 + c]).collect();
+
+                debug!(
+                    "Legal moves: {} total, policy sum: {}",
+                    legal_moves.len(),
+                    legal_probs.iter().sum::<f32>()
+                );
 
                 let sum_probs: f32 = legal_probs.iter().copied().sum();
                 if sum_probs <= f32::EPSILON {
@@ -193,23 +207,36 @@ pub fn start_gpu_worker(
     max_batch_size: usize,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
+        debug!("GPU worker: starting, attempting to load model from {:?}", model_path);
         let mut model = load_model(model_path.to_str().unwrap()).expect("failed to load model");
+        debug!("GPU worker: model loaded successfully");
 
         loop {
             // Pop a batch of requests
             let batch = gpu.pop_batch(max_batch_size);
 
             if batch.is_empty() {
+                debug!("No batch available, yielding...");
                 std::thread::yield_now();
                 continue;
             }
+            debug!("GPU worker: processing batch of {} requests", batch.len());
 
             // Extract states and IDs from requests
             let states: Vec<Vec<f32>> = batch.iter().map(|req| req.state.clone()).collect();
             let ids: Vec<u64> = batch.iter().map(|req| req.id).collect();
 
             // Evaluate the batch with the neural network
-            let evals = nn_eval_batch(&mut model, &states).expect("nn_eval_batch failed");
+            let evals = match nn_eval_batch(&mut model, &states) {
+                Ok(evals) => {
+                    debug!("GPU worker: batch evaluation succeeded");
+                    evals
+                }
+                Err(e) => {
+                    debug!("GPU worker: batch evaluation failed: {:?}", e);
+                    return;
+                }
+            };
 
             // Convert NN output to EvalResults
             let mut results = Vec::with_capacity(evals.len());
@@ -228,6 +255,7 @@ pub fn start_gpu_worker(
             }
 
             // Push results back to the queue
+            debug!("GPU worker: pushing {} results back", results.len());
             gpu.push_results(results);
         }
     })
