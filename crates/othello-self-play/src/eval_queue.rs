@@ -29,6 +29,7 @@ pub struct EvalResult {
 
 /// Lock-free queue system for bidirectional communication between
 /// search threads and GPU worker
+#[derive(Clone)]
 pub struct EvalQueue {
     /// Search threads push requests here (N producers)
     requests: Arc<SegQueue<EvalRequest>>,

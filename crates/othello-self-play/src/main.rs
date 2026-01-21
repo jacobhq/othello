@@ -54,12 +54,17 @@ fn main() -> anyhow::Result<()> {
 
     let prefix = args.prefix.unwrap_or_default();
 
+    let num_parallel_games = num_cpus::get(); // or 4, 8, etc.
+    let mcts_threads_per_game = 2usize;            // small
+
     // NEW async self-play
     let samples: Vec<Sample> = generate_self_play_data(
         &prefix,
         args.games,
         args.sims,
         args.model,
+        num_parallel_games,
+        mcts_threads_per_game
     )?;
 
     info!("Generated {} samples", samples.len());

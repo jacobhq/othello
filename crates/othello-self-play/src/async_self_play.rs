@@ -11,6 +11,8 @@ use othello::othello_game::{Color, Move, OthelloGame};
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
 use rand::rng;
+use rayon::ThreadPoolBuilder;
+use rayon::prelude::*;
 use tracing::{debug, info};
 
 /// Represents a single self-play training sample
@@ -21,187 +23,161 @@ pub struct Sample {
     pub value: f32,                // final game result
 }
 
+fn play_one_game(
+    game_idx: usize,
+    prefix: &str,
+    sims_per_move: u32,
+    eval_queue: EvalQueue,
+    tree_threads: usize,
+) -> Result<Vec<Sample>> {
+    debug!("Entering game {game_idx}");
+    let mut game = OthelloGame::new();
+
+    let mut game_samples: Vec<(Sample, Color)> = Vec::new();
+
+    while !game.game_over() {
+        let current_player = game.current_turn;
+
+        // ---------------- MCTS ----------------
+        let tree = Tree::new();
+        let search_handle = eval_queue.search_handle();
+
+        // IMPORTANT: keep this small
+        let num_threads = tree_threads;
+        let barrier = Arc::new(Barrier::new(num_threads));
+
+        let mut workers = Vec::new();
+
+        for _ in 0..num_threads {
+            let tree = tree.clone();
+            let handle = search_handle.clone();
+            let barrier = Arc::clone(&barrier);
+            let root_game = game;
+
+            workers.push(thread::spawn(move || {
+                let mut worker = SearchWorker::new(tree, handle);
+                barrier.wait();
+
+                let sims_per_thread = (sims_per_move / num_threads as u32).max(1);
+
+                for _ in 0..sims_per_thread {
+                    worker.simulate(&root_game);
+                    worker.poll_results();
+                }
+
+                while worker.has_pending() {
+                    worker.poll_results();
+                    std::thread::yield_now();
+                }
+            }));
+        }
+
+        for w in workers {
+            w.join().unwrap();
+        }
+
+        // ---------------- Policy extraction ----------------
+        let mut policy = vec![0.0f32; 64];
+        let visits = tree.child_visits(tree.root());
+        let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
+
+        for (action, count) in visits {
+            policy[action] = count as f32 / total_visits as f32;
+        }
+
+        // ---------------- Store sample ----------------
+        game_samples.push((
+            Sample {
+                state: game.encode(current_player),
+                policy: policy.clone(),
+                value: 0.0,
+            },
+            current_player,
+        ));
+
+        // ---------------- Play move ----------------
+        let legal_moves = game.legal_moves(current_player);
+
+        if legal_moves.is_empty() {
+            game.mcts_play(Move::Pass, current_player).unwrap();
+        } else {
+            let mut probs: Vec<f32> = legal_moves.iter().map(|(r, c)| policy[r * 8 + c]).collect();
+
+            let sum: f32 = probs.iter().sum();
+            if sum <= f32::EPSILON {
+                let u = 1.0 / probs.len() as f32;
+                probs.iter_mut().for_each(|p| *p = u);
+            }
+
+            let dist = WeightedIndex::new(&probs)?;
+            let choice = dist.sample(&mut rng());
+            let (r, c) = legal_moves[choice];
+            game.mcts_play(Move::Move(r, c), current_player).unwrap();
+        }
+    }
+
+    // ---------------- Backfill values ----------------
+    let (b, w) = game.score();
+    let outcome = match b.cmp(&w) {
+        std::cmp::Ordering::Greater => 1.0,
+        std::cmp::Ordering::Less => -1.0,
+        _ => 0.0,
+    };
+
+    let samples = game_samples
+        .into_iter()
+        .map(|(mut s, p)| {
+            s.value = if p == Color::Black { outcome } else { -outcome };
+            s
+        })
+        .collect::<Vec<_>>();
+
+    info!(
+        "Finished game {} (prefix: {}, samples {})",
+        game_idx,
+        prefix,
+        samples.len()
+    );
+
+    Ok(samples)
+}
+
 pub fn generate_self_play_data(
     prefix: &str,
     games: usize,
     sims_per_move: u32,
     model: PathBuf,
+    game_threads: usize,
+    tree_threads: usize,
 ) -> Result<Vec<Sample>> {
-    let mut all_samples = Vec::new();
-
-    // ------------------------------------------------------------
-    // Shared NN eval infrastructure
-    // ------------------------------------------------------------
-
+    // ---------------- Shared GPU infra ----------------
     let eval_queue = EvalQueue::new();
-
-    // Start GPU worker once
     let _gpu_thread = start_gpu_worker(eval_queue.gpu_handle(), model, 128);
 
-    // ------------------------------------------------------------
-    // Self-play games
-    // ------------------------------------------------------------
+    // ---------------- Parallel self-play ----------------
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(game_threads) // Set N = 4
+        .build()?;
 
-    for game_idx in 0..games {
-        debug!("Entering game {game_idx}");
-        let mut game = OthelloGame::new();
+    let all_samples: Result<Vec<Sample>> = pool.install(|| {
+        (0..games)
+            .into_par_iter()
+            .map(|game_idx| {
+                play_one_game(
+                    game_idx,
+                    prefix,
+                    sims_per_move,
+                    eval_queue.clone(),
+                    tree_threads,
+                )
+            })
+            .try_reduce(Vec::new, |mut acc, mut samples| {
+                acc.append(&mut samples);
+                Ok(acc)
+            })
+    });
 
-        // Store (sample, player_at_time)
-        let mut game_samples: Vec<(Sample, Color)> = Vec::new();
-
-        while !game.game_over() {
-            let current_player = game.current_turn;
-
-            // -----------------------------------------------------
-            // MCTS setup
-            // -----------------------------------------------------
-
-            let tree = Tree::new();
-            let search_handle = eval_queue.search_handle();
-
-            let num_threads = 1;
-            let barrier = Arc::new(Barrier::new(num_threads));
-
-            let mut workers = Vec::new();
-
-            for _ in 0..num_threads {
-                let tree = tree.clone();
-                let handle = search_handle.clone();
-                let barrier = Arc::clone(&barrier);
-                let root_game = game;
-
-                workers.push(thread::spawn(move || {
-                    let mut worker = SearchWorker::new(tree, handle);
-
-                    barrier.wait();
-
-                    let sims_per_thread = (sims_per_move / num_threads as u32).max(1);
-
-                    for _ in 0..sims_per_thread {
-                        worker.simulate(&root_game);
-                        worker.poll_results();
-                    }
-
-                    while worker.has_pending() {
-                        worker.poll_results();
-                        std::thread::yield_now();
-                    }
-
-                    // Drain any outstanding evaluations to ensure the shared tree
-                    // gets expanded before we read visit counts.
-                    // Finish all evals this worker issued
-                    while worker.has_pending() {
-                        worker.poll_results();
-                        std::thread::yield_now();
-                    }
-
-                    debug!(
-                        "After draining iterations: pending={}, has_results={}",
-                        worker.has_pending(),
-                        worker.eval_queue.has_results()
-                    )
-                }));
-            }
-
-            for w in workers {
-                w.join().unwrap();
-            }
-
-            // -----------------------------------------------------
-            // Extract policy from visit counts
-            // -----------------------------------------------------
-            let mut policy = vec![0.0f32; 64];
-
-            let visits = tree.child_visits(tree.root());
-            debug!(
-                "Tree visits: {} actions with total {} visits",
-                visits.len(),
-                visits.iter().map(|(_, v)| *v).sum::<u32>()
-            );
-            let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
-            for (action, count) in visits {
-                policy[action] = count as f32 / total_visits as f32;
-            }
-
-            // -----------------------------------------------------
-            // Store training sample
-            // -----------------------------------------------------
-
-            let sample = Sample {
-                state: game.encode(current_player),
-                policy: policy.clone(),
-                value: 0.0,
-            };
-
-            game_samples.push((sample, current_player));
-
-            // -----------------------------------------------------
-            // Play move (sample from policy or pass)
-            // -----------------------------------------------------
-            let legal_moves = game.legal_moves(current_player);
-
-            if legal_moves.is_empty() {
-                game.mcts_play(Move::Pass, current_player)
-                    .map_err(|e| anyhow!("pass move failed: {e:?}"))?;
-            } else {
-                // Pull probabilities only for legal moves; if the tree ended up
-                // with zero visits (e.g. sims_per_move too small), fall back to uniform.
-                let mut legal_probs: Vec<f32> =
-                    legal_moves.iter().map(|(r, c)| policy[r * 8 + c]).collect();
-
-                debug!(
-                    "Legal moves: {} total, policy sum: {}",
-                    legal_moves.len(),
-                    legal_probs.iter().sum::<f32>()
-                );
-
-                let sum_probs: f32 = legal_probs.iter().copied().sum();
-                if sum_probs <= f32::EPSILON {
-                    let uniform = 1.0 / legal_probs.len() as f32;
-                    for p in &mut legal_probs {
-                        *p = uniform;
-                    }
-                }
-
-                let dist = WeightedIndex::new(&legal_probs)
-                    .map_err(|e| anyhow!("failed to build policy dist: {e}"))?;
-                let mut rng = rng();
-                let choice = dist.sample(&mut rng);
-                let (row, col) = legal_moves[choice];
-
-                game.mcts_play(Move::Move(row, col), current_player)
-                    .map_err(|e| anyhow!("mcts_play failed: {e:?}"))?;
-            }
-        }
-
-        // ---------------------------------------------------------
-        // Backfill values
-        // ---------------------------------------------------------
-
-        let (black_score, white_score) = game.score();
-        let outcome = match black_score.cmp(&white_score) {
-            std::cmp::Ordering::Greater => 1.0,
-            std::cmp::Ordering::Less => -1.0,
-            std::cmp::Ordering::Equal => 0.0,
-        };
-
-        for (mut sample, player) in game_samples {
-            sample.value = match player {
-                Color::Black => outcome,
-                Color::White => -outcome,
-            };
-            all_samples.push(sample);
-        }
-
-        info!(
-            "Finished game {} (prefix: {}, total samples {})",
-            game_idx,
-            prefix,
-            all_samples.len()
-        );
-    }
-
-    Ok(all_samples)
+    all_samples
 }
 
 pub fn start_gpu_worker(
