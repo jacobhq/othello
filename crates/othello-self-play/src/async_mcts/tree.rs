@@ -43,14 +43,18 @@ impl Node {
 /// Arena-style tree for MCTS
 #[derive(Clone)]
 pub struct Tree {
-    nodes: Vec<Arc<Node>>,
+    // Shared across clones so worker-local Tree copies still operate on the
+    // same underlying node arena.
+    nodes: Arc<Mutex<Vec<Arc<Node>>>>,
 }
 
 impl Tree {
     /// Create a new tree with a single root node
     pub fn new() -> Self {
         let root = Arc::new(Node::new(1.0));
-        Self { nodes: vec![root] }
+        Self {
+            nodes: Arc::new(Mutex::new(vec![root])),
+        }
     }
 
     /// Get root node id
@@ -60,13 +64,15 @@ impl Tree {
 
     /// Get a node by id
     pub fn node(&self, id: NodeId) -> Arc<Node> {
-        Arc::clone(&self.nodes[id])
+        let nodes = self.nodes.lock().unwrap();
+        Arc::clone(&nodes[id])
     }
 
     /// Add a new child node, returns its NodeId
-    pub fn add_child(&mut self, prior: f32) -> NodeId {
-        let id = self.nodes.len();
-        self.nodes.push(Arc::new(Node::new(prior)));
+    pub fn add_child(&self, prior: f32) -> NodeId {
+        let mut nodes = self.nodes.lock().unwrap();
+        let id = nodes.len();
+        nodes.push(Arc::new(Node::new(prior)));
         id
     }
 
@@ -74,7 +80,7 @@ impl Tree {
     ///
     /// `policy` is a sparse list of (action, probability)
     pub fn expand(
-        &mut self,
+        &self,
         node_id: NodeId,
         policy: &[(usize, f32)],
     ) {

@@ -6,7 +6,7 @@ use crate::async_mcts::search::SearchWorker;
 use crate::async_mcts::tree::Tree;
 use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
 use crate::neural_net::{load_model, nn_eval_batch};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use othello::othello_game::{Color, Move, OthelloGame};
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
@@ -55,7 +55,7 @@ pub fn generate_self_play_data(
             // MCTS setup
             // -----------------------------------------------------
 
-            let tree = Arc::new(Tree::new());
+            let tree = Tree::new();
             let search_handle = eval_queue.search_handle();
 
             let num_threads = num_cpus::get().max(1);
@@ -64,21 +64,28 @@ pub fn generate_self_play_data(
             let mut workers = Vec::new();
 
             for _ in 0..num_threads {
-                let tree = Arc::clone(&tree);
+                let tree = tree.clone();
                 let handle = search_handle.clone();
                 let barrier = Arc::clone(&barrier);
                 let root_game = game;
 
                 workers.push(thread::spawn(move || {
-                    let mut worker = SearchWorker::new((*tree).clone(), handle);
+                    let mut worker = SearchWorker::new(tree, handle);
 
                     barrier.wait();
 
-                    let sims_per_thread = sims_per_move / num_threads as u32;
+                    let sims_per_thread = (sims_per_move / num_threads as u32).max(1);
 
                     for _ in 0..sims_per_thread {
                         worker.simulate(&root_game);
                         worker.poll_results();
+                    }
+
+                    // Drain any outstanding evaluations to ensure the shared tree
+                    // gets expanded before we read visit counts.
+                    while worker.has_pending() || worker.eval_queue.has_results() {
+                        worker.poll_results();
+                        std::thread::yield_now();
                     }
                 }));
             }
@@ -93,15 +100,7 @@ pub fn generate_self_play_data(
             let mut policy = vec![0.0f32; 64];
 
             let visits = tree.child_visits(tree.root());
-
-            let visits_clone = visits.clone();
-            let total_visits: u32 = visits_clone.iter().map(|(_, v)| *v).sum::<u32>().max(1);
-            for (action, count) in visits_clone {
-                policy[action] = count as f32 / total_visits as f32;
-            }
-
             let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
-
             for (action, count) in visits {
                 policy[action] = count as f32 / total_visits as f32;
             }
@@ -121,17 +120,35 @@ pub fn generate_self_play_data(
             // -----------------------------------------------------
             // Play move (sample from policy or pass)
             // -----------------------------------------------------
-            if policy == vec![0.0f32; 64] {
-                game.mcts_play(Move::Pass, current_player);
+            let legal_moves = game.legal_moves(current_player);
+
+            if legal_moves.is_empty() {
+                game.mcts_play(Move::Pass, current_player)
+                    .map_err(|e| anyhow!("pass move failed: {e:?}"))?;
             } else {
-                let dist = WeightedIndex::new(&policy).expect("Failed to create index");
+                // Pull probabilities only for legal moves; if the tree ended up
+                // with zero visits (e.g. sims_per_move too small), fall back to uniform.
+                let mut legal_probs: Vec<f32> = legal_moves
+                    .iter()
+                    .map(|(r, c)| policy[r * 8 + c])
+                    .collect();
+
+                let sum_probs: f32 = legal_probs.iter().copied().sum();
+                if sum_probs <= f32::EPSILON {
+                    let uniform = 1.0 / legal_probs.len() as f32;
+                    for p in &mut legal_probs {
+                        *p = uniform;
+                    }
+                }
+
+                let dist = WeightedIndex::new(&legal_probs)
+                    .map_err(|e| anyhow!("failed to build policy dist: {e}"))?;
                 let mut rng = rng();
-                let action = dist.sample(&mut rng);
+                let choice = dist.sample(&mut rng);
+                let (row, col) = legal_moves[choice];
 
-                let row = action / 8;
-                let col = action % 8;
-
-                game.mcts_play(Move::Move(row, col), current_player);
+                game.mcts_play(Move::Move(row, col), current_player)
+                    .map_err(|e| anyhow!("mcts_play failed: {e:?}"))?;
             }
 
             current_player = match current_player {

@@ -105,6 +105,10 @@ impl<G: Game> SearchWorker<G> {
         }
     }
 
+    pub fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     /// Run one MCTS simulation
     pub fn simulate(&mut self, root_state: &G) {
         let root_player = root_state.current_player();
