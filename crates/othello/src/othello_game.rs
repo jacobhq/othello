@@ -1,6 +1,11 @@
 use std::fmt::{Display, Formatter};
 use crate::bitboard::BitBoard;
 
+pub enum Move {
+    Move(usize, usize),
+    Pass
+}
+
 /// An error enum to represent which error has occurred in the game
 #[derive(Debug, PartialEq)]
 pub enum OthelloError {
@@ -156,24 +161,9 @@ impl OthelloGame {
         moves
     }
 
-    /// Play a move for the given player. Returns false if illegal.
-    pub fn play(&mut self, row: usize, col: usize, player: Color) -> Result<(), OthelloError> {
-        if self.legal_moves_mask(self.current_turn) == BitBoard(0) {
-            let next = match self.current_turn {
-                Color::Black => Color::White,
-                Color::White => Color::Black,
-            };
-            self.current_turn = next;
-            return Err(OthelloError::NoMovesForPlayer);
-        }
+    /// Play a move with no legality checking, and no turn switching
+    pub fn play_unchecked(&mut self, row: usize, col: usize, player: Color) {
         let move_mask: BitBoard = BitBoard(BitBoard::mask(row, col));
-        if self.current_turn != player {
-            return Err(OthelloError::NotYourTurn);
-        }
-        if self.legal_moves_mask(player) & move_mask == BitBoard(0) {
-            self.current_turn = player;
-            return Err(OthelloError::IllegalMove);
-        }
 
         let (mut me, mut opp) = match player {
             Color::Black => (self.black, self.white),
@@ -221,7 +211,81 @@ impl OthelloGame {
                 self.black = opp;
             }
         }
+    }
 
+    /// Play a move for the given player. Returns false if illegal.
+    pub fn play(&mut self, row: usize, col: usize, player: Color) -> Result<(), OthelloError> {
+        if self.current_turn != player {
+            return Err(OthelloError::NotYourTurn);
+        }
+        if self.legal_moves_mask(self.current_turn) == BitBoard(0) {
+            let next = match self.current_turn {
+                Color::Black => Color::White,
+                Color::White => Color::Black,
+            };
+            self.current_turn = next;
+            return Err(OthelloError::NoMovesForPlayer);
+        }
+        let move_mask: BitBoard = BitBoard(BitBoard::mask(row, col));
+        if self.legal_moves_mask(player) & move_mask == BitBoard(0) {
+            self.current_turn = player;
+            return Err(OthelloError::IllegalMove);
+        }
+
+        self.play_unchecked(row, col, player);
+
+        let next_player = match player {
+            Color::Black => Color::White,
+            Color::White => Color::Black,
+        };
+        if self.legal_moves_mask(next_player) != BitBoard(0) {
+            // Opponent has a move: switch turn
+            self.current_turn = next_player;
+        } else if self.legal_moves_mask(player) != BitBoard(0) {
+            // Opponent has no moves but current player does: stay on current player
+            self.current_turn = player;
+        }
+
+        Ok(())
+    }
+
+    pub fn mcts_play(&mut self, m: Move, player: Color) -> Result<(), OthelloError> {
+        // Is it the player's turn?
+        if self.current_turn != player {
+            return Err(OthelloError::NotYourTurn);
+        }
+
+        match m {
+            Move::Move(r,c) => {
+                let move_mask: BitBoard = BitBoard(BitBoard::mask(r, c));
+
+                // Does the player have any legal moves?
+                if self.legal_moves_mask(self.current_turn) == BitBoard(0) {
+                    let next = match self.current_turn {
+                        Color::Black => Color::White,
+                        Color::White => Color::Black,
+                    };
+                    self.current_turn = next;
+                    return Err(OthelloError::NoMovesForPlayer);
+                }
+
+                // Is this move illegal?
+                if self.legal_moves_mask(player) & move_mask == BitBoard(0) {
+                    return Err(OthelloError::IllegalMove);
+                }
+
+                // Play the move
+                self.play_unchecked(r, c, player)
+            },
+            Move::Pass => {
+                // Does the player have any moves
+                if !self.legal_moves(player).is_empty() {
+                    return Err(OthelloError::IllegalMove);
+                }
+            }
+        }
+
+        // Now switch the turn, since the move was applied successfully
         let next_player = match player {
             Color::Black => Color::White,
             Color::White => Color::Black,

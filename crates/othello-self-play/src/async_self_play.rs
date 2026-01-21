@@ -7,7 +7,7 @@ use crate::async_mcts::tree::Tree;
 use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
 use crate::neural_net::{load_model, nn_eval_batch};
 use anyhow::Result;
-use othello::othello_game::{Color, OthelloGame};
+use othello::othello_game::{Color, Move, OthelloGame};
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
 use rand::rng;
@@ -36,9 +36,7 @@ pub fn generate_self_play_data(
     let eval_queue = EvalQueue::new();
 
     // Start GPU worker once
-    debug!("Starting worker");
     let _gpu_thread = start_gpu_worker(eval_queue.gpu_handle(), model, 128);
-    debug!("Worker started");
 
     // ------------------------------------------------------------
     // Self-play games
@@ -53,7 +51,6 @@ pub fn generate_self_play_data(
         let mut game_samples: Vec<(Sample, Color)> = Vec::new();
 
         while !game.game_over() {
-            debug!("Entering MCTS loop");
             // -----------------------------------------------------
             // MCTS setup
             // -----------------------------------------------------
@@ -93,27 +90,14 @@ pub fn generate_self_play_data(
             // -----------------------------------------------------
             // Extract policy from visit counts
             // -----------------------------------------------------
-            debug!("About to extract policy");
             let mut policy = vec![0.0f32; 64];
-
-            debug!("initial policy {policy:?}");
 
             let visits = tree.child_visits(tree.root());
 
-            if visits.is_empty() {
-                // Fallback: uniform over legal moves
-                let legal_moves = game.legal_moves(current_player);
-
-                let p = 1.0 / legal_moves.len() as f32;
-                for (row, col) in legal_moves {
-                    policy[row * 8 + col] = p;
-                }
-            } else {
-                let visits_clone = visits.clone();
-                let total_visits: u32 = visits_clone.iter().map(|(_, v)| *v).sum::<u32>().max(1);
-                for (action, count) in visits_clone {
-                    policy[action] = count as f32 / total_visits as f32;
-                }
+            let visits_clone = visits.clone();
+            let total_visits: u32 = visits_clone.iter().map(|(_, v)| *v).sum::<u32>().max(1);
+            for (action, count) in visits_clone {
+                policy[action] = count as f32 / total_visits as f32;
             }
 
             let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
@@ -135,20 +119,21 @@ pub fn generate_self_play_data(
             game_samples.push((sample, current_player));
 
             // -----------------------------------------------------
-            // Play move (sample from policy)
+            // Play move (sample from policy or pass)
             // -----------------------------------------------------
-            debug!("Making a dist over policy");
-            debug!("policy {policy:?}");
-            let dist = WeightedIndex::new(&policy).expect("Failed to create index");
-            debug!("dist {dist:?}");
-            debug!("Made a dist over policy");
-            let mut rng = rng();
-            let action = dist.sample(&mut rng);
+            if policy == vec![0.0f32; 64] {
+                game.mcts_play(Move::Pass, current_player);
+            } else {
+                let dist = WeightedIndex::new(&policy).expect("Failed to create index");
+                let mut rng = rng();
+                let action = dist.sample(&mut rng);
 
-            let row = action / 8;
-            let col = action % 8;
+                let row = action / 8;
+                let col = action % 8;
 
-            game.play(row, col, current_player);
+                game.mcts_play(Move::Move(row, col), current_player);
+            }
+
             current_player = match current_player {
                 Color::Black => Color::White,
                 Color::White => Color::Black,

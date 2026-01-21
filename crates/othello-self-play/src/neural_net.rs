@@ -167,9 +167,7 @@ pub fn nn_eval_batch(
             .iter()
             .map(|&logp| logp.exp())
             .collect();
-
-        println!("{policy_flat:?}");
-
+        
         let move_probs: Vec<PolicyElement> = policy_flat
             .into_iter()
             .enumerate()

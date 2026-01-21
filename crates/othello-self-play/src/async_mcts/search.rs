@@ -1,9 +1,8 @@
 use crate::async_mcts::tree::{NodeId, Tree};
 use crate::eval_queue::{EvalRequest, EvalResult, SearchHandle};
-use othello::othello_game::{Color, OthelloError, OthelloGame};
+use othello::othello_game::{Color, Move, OthelloError, OthelloGame};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::debug;
 
 /// Global counter for eval request ids
 static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -16,7 +15,7 @@ pub trait Game: Clone + Send + Sync + 'static {
     fn legal_moves(&self) -> Vec<(usize, usize)>;
 
     /// Apply a move for the current player
-    fn play_move(&mut self, row: usize, col: usize) -> Result<(), OthelloError>;
+    fn play_move(&mut self, m: Move) -> Result<(), OthelloError>;
 
     /// Is the game over?
     fn is_terminal(&self) -> bool;
@@ -37,8 +36,8 @@ impl Game for OthelloGame {
         self.legal_moves(self.current_turn)
     }
 
-    fn play_move(&mut self, row: usize, col: usize) -> Result<(), OthelloError> {
-        self.play(row, col, self.current_turn)
+    fn play_move(&mut self, m: Move) -> Result<(), OthelloError> {
+        self.mcts_play(m, self.current_turn)
     }
 
     fn is_terminal(&self) -> bool {
@@ -124,11 +123,15 @@ impl<G: Game> SearchWorker<G> {
                 return;
             }
 
+            if state.legal_moves().is_empty() {
+                state.play_move(Move::Pass).unwrap();
+            }
+
             if let Some((action, child)) = self.tree.select_child(node_id, self.c_puct) {
                 self.tree.add_virtual_loss(child, self.virtual_loss);
 
                 let (row, col) = action_to_rc(action);
-                state.play_move(row, col).unwrap();
+                state.play_move(Move::Move(row, col)).unwrap();
 
                 node_id = child;
             } else {
@@ -146,8 +149,6 @@ impl<G: Game> SearchWorker<G> {
             state: state.encode(root_player),
         };
 
-        debug!("{request:?}");
-
         self.eval_queue.push_request(request);
 
         self.pending.insert(id, PendingEval { path, leaf, state });
@@ -156,7 +157,6 @@ impl<G: Game> SearchWorker<G> {
     /// Opportunistically consume NN eval results
     pub fn poll_results(&mut self) {
         while let Some(result) = self.eval_queue.try_pop_result() {
-            debug!("{result:?}");
             self.handle_eval_result(result);
         }
     }
