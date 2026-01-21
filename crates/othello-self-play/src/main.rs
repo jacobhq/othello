@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
 
     let prefix = args.prefix.unwrap_or_default();
 
-    let num_parallel_games = num_cpus::get(); // or 4, 8, etc.
+    let num_parallel_games = 8usize; // or 4, 8, etc.
     let mcts_threads_per_game = 2usize;            // small
 
     // NEW async self-play
