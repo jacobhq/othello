@@ -45,12 +45,13 @@ pub fn generate_self_play_data(
     for game_idx in 0..games {
         debug!("Entering game {game_idx}");
         let mut game = OthelloGame::new();
-        let mut current_player = Color::Black;
 
         // Store (sample, player_at_time)
         let mut game_samples: Vec<(Sample, Color)> = Vec::new();
 
         while !game.game_over() {
+            let current_player = game.current_turn;
+
             // -----------------------------------------------------
             // MCTS setup
             // -----------------------------------------------------
@@ -171,11 +172,6 @@ pub fn generate_self_play_data(
                 game.mcts_play(Move::Move(row, col), current_player)
                     .map_err(|e| anyhow!("mcts_play failed: {e:?}"))?;
             }
-
-            current_player = match current_player {
-                Color::Black => Color::White,
-                Color::White => Color::Black,
-            };
         }
 
         // ---------------------------------------------------------
