@@ -11,7 +11,7 @@ use othello::othello_game::{Color, Move, OthelloGame};
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
 use rand::rng;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Represents a single self-play training sample
 #[derive(Clone)]
@@ -193,10 +193,10 @@ pub fn generate_self_play_data(
             all_samples.push(sample);
         }
 
-        println!(
-            "[{}] finished game {} (total samples {})",
-            prefix,
+        info!(
+            "Finished game {} (prefix: {}, total samples {})",
             game_idx,
+            prefix,
             all_samples.len()
         );
     }
