@@ -6,10 +6,10 @@ pub type NodeId = usize;
 
 /// A single MCTS node
 pub struct Node {
-    inner: Mutex<NodeInner>,
+    pub(crate) inner: Mutex<NodeInner>,
 }
 
-struct NodeInner {
+pub struct NodeInner {
     /// Prior probability from the policy network
     prior: f32,
 
@@ -20,7 +20,7 @@ struct NodeInner {
     value_sum: f32,
 
     /// Children: action -> node id
-    children: HashMap<usize, NodeId>,
+    pub(crate) children: HashMap<usize, NodeId>,
 
     /// Has this node been expanded yet?
     expanded: bool,

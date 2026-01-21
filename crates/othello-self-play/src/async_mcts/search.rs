@@ -113,7 +113,6 @@ impl<G: Game> SearchWorker<G> {
     pub fn simulate(&mut self, root_state: &G) {
         let root_player = root_state.current_player();
 
-        // 1. Selection
         let mut path = Vec::new();
         let mut node_id = self.tree.root();
         let mut state = root_state.clone();
@@ -128,8 +127,26 @@ impl<G: Game> SearchWorker<G> {
             }
 
             if state.legal_moves().is_empty() {
+                // Tree must advance too
+                let pass_action = 64;
+
+                // Expand-on-demand: create child if missing
+                let child = {
+                    let node = self.tree.node(node_id);
+                    let mut inner = node.inner.lock().unwrap();
+
+                    *inner.children.entry(pass_action).or_insert_with(|| {
+                        self.tree.add_child(1.0) // neutral prior
+                    })
+                };
+
+                self.tree.add_virtual_loss(child, self.virtual_loss);
+
                 state.play_move(Move::Pass).unwrap();
+                node_id = child;
+                continue;
             }
+
 
             if let Some((action, child)) = self.tree.select_child(node_id, self.c_puct) {
                 self.tree.add_virtual_loss(child, self.virtual_loss);
@@ -139,28 +156,38 @@ impl<G: Game> SearchWorker<G> {
 
                 node_id = child;
             } else {
-                break; // unexpanded leaf
+                break;
             }
         }
 
-        // 2. Leaf expansion via NN
         let leaf = node_id;
-
         let id = NEXT_EVAL_ID.fetch_add(1, Ordering::Relaxed);
 
-        let request = EvalRequest {
-            id,
-            state: state.encode(root_player),
-        };
+        let encoded = state.encode(root_player);
 
-        self.eval_queue.push_request(request);
-
+        // FIX 1: insert pending first
         self.pending.insert(id, PendingEval { path, leaf, state });
+
+        // FIX 2: then push request
+        self.eval_queue.push_request(EvalRequest {
+            id,
+            state: encoded,
+        });
     }
 
-    /// Opportunistically consume NN eval results
+    /// Opportunistically consume NN eval results for this worker only
     pub fn poll_results(&mut self) {
-        while let Some(result) = self.eval_queue.try_pop_result() {
+        // Collect finished results first
+        let mut finished = Vec::new();
+
+        for &id in self.pending.keys() {
+            if let Some(result) = self.eval_queue.try_take_result(id) {
+                finished.push(result);
+            }
+        }
+
+        // Now handle them
+        for result in finished {
             self.handle_eval_result(result);
         }
     }
@@ -171,12 +198,18 @@ impl<G: Game> SearchWorker<G> {
             None => return, // stale / duplicate
         };
 
-        let PendingEval { path, leaf, state } = pending;
+        let PendingEval { path, leaf, .. } = pending;
+
+        // 🔴 Remove virtual loss from every node where it was added
+        // path[0] is the root → no virtual loss there
+        for &node in path.iter().skip(1) {
+            self.tree.revert_virtual_loss(node, self.virtual_loss);
+        }
 
         // Expand leaf
         self.tree.expand(leaf, &result.policy);
 
-        // Backprop value
+        // Backprop real value
         self.tree.backprop(&path, result.value);
     }
 }

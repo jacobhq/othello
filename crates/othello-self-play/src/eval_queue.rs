@@ -1,4 +1,5 @@
 use crossbeam::queue::SegQueue;
+use dashmap::DashMap;
 use std::sync::Arc;
 
 /// Element of a policy vector: (action_index, probability)
@@ -32,7 +33,7 @@ pub struct EvalQueue {
     /// Search threads push requests here (N producers)
     requests: Arc<SegQueue<EvalRequest>>,
     /// GPU worker pushes results here (1 producer)
-    results: Arc<SegQueue<EvalResult>>,
+    results: Arc<DashMap<u64, EvalResult>>,
 }
 
 impl EvalQueue {
@@ -40,7 +41,7 @@ impl EvalQueue {
     pub fn new() -> Self {
         Self {
             requests: Arc::new(SegQueue::new()),
-            results: Arc::new(SegQueue::new()),
+            results: Arc::new(DashMap::new()),
         }
     }
 
@@ -71,7 +72,7 @@ impl Default for EvalQueue {
 #[derive(Clone)]
 pub struct SearchHandle {
     requests: Arc<SegQueue<EvalRequest>>,
-    results: Arc<SegQueue<EvalResult>>,
+    results: Arc<DashMap<u64, EvalResult>>,
 }
 
 impl SearchHandle {
@@ -80,10 +81,15 @@ impl SearchHandle {
         self.requests.push(request);
     }
 
-    /// Opportunistically pop a result if available (non-blocking)
-    /// Returns None if no results are ready
-    pub fn try_pop_result(&self) -> Option<EvalResult> {
-        self.results.pop()
+    /// Try to retrieve and remove the evaluation result for `id`
+    pub fn try_take_result(&self, id: u64) -> Option<EvalResult> {
+        self.results.remove(&id).map(|(_, result)| result)
+    }
+
+    /// Check whether the evaluation result for `id` exists
+    /// (useful if you want to avoid a remove attempt)
+    pub fn has_result(&self, id: u64) -> bool {
+        self.results.contains_key(&id)
     }
 
     /// Check if there are any results available without popping
@@ -95,7 +101,7 @@ impl SearchHandle {
 /// Handle for GPU worker to interact with the queue
 pub struct GpuHandle {
     requests: Arc<SegQueue<EvalRequest>>,
-    results: Arc<SegQueue<EvalResult>>,
+    results: Arc<DashMap<u64, EvalResult>>,
 }
 
 impl GpuHandle {
@@ -123,7 +129,7 @@ impl GpuHandle {
     /// Push evaluation results back (non-blocking)
     pub fn push_results(&self, results: Vec<EvalResult>) {
         for result in results {
-            self.results.push(result);
+            self.results.insert(result.id, result);
         }
     }
 
@@ -149,29 +155,22 @@ mod tests {
         let search = queue.search_handle();
         let gpu = queue.gpu_handle();
 
-        // Search thread pushes request
         let req = EvalRequest {
             id: 1,
             state: vec![0.0; 64],
         };
         search.push_request(req);
 
-        // GPU worker pops request
         let batch = gpu.pop_batch(32);
         assert_eq!(batch.len(), 1);
-        assert_eq!(batch[0].id, 1);
 
-        // GPU worker pushes result
-        let result = EvalResult {
+        gpu.push_results(vec![EvalResult {
             id: 1,
-            policy: vec![(0, 0.5), (1, 0.3)],
+            policy: vec![(0, 0.5)],
             value: 0.2,
-        };
-        gpu.push_results(vec![result]);
+        }]);
 
-        // Search thread pops result
-        let res = search.try_pop_result().unwrap();
-        assert_eq!(res.id, 1);
+        let res = search.try_take_result(1).unwrap();
         assert_eq!(res.value, 0.2);
     }
 

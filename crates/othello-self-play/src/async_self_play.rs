@@ -58,7 +58,7 @@ pub fn generate_self_play_data(
             let tree = Tree::new();
             let search_handle = eval_queue.search_handle();
 
-            let num_threads = num_cpus::get().max(1);
+            let num_threads = 1;
             let barrier = Arc::new(Barrier::new(num_threads));
 
             let mut workers = Vec::new();
@@ -81,17 +81,24 @@ pub fn generate_self_play_data(
                         worker.poll_results();
                     }
 
-                    // Drain any outstanding evaluations to ensure the shared tree
-                    // gets expanded before we read visit counts.
-                    while worker.has_pending() || worker.eval_queue.has_results() {
-                        debug!(
-                            "Draining: pending={}, has_results={}",
-                            worker.has_pending(),
-                            worker.eval_queue.has_results()
-                        );
+                    while worker.has_pending() {
                         worker.poll_results();
                         std::thread::yield_now();
                     }
+
+                    // Drain any outstanding evaluations to ensure the shared tree
+                    // gets expanded before we read visit counts.
+                    // Finish all evals this worker issued
+                    while worker.has_pending() {
+                        worker.poll_results();
+                        std::thread::yield_now();
+                    }
+
+                    debug!(
+                        "After draining iterations: pending={}, has_results={}",
+                        worker.has_pending(),
+                        worker.eval_queue.has_results()
+                    )
                 }));
             }
 
@@ -207,7 +214,10 @@ pub fn start_gpu_worker(
     max_batch_size: usize,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        debug!("GPU worker: starting, attempting to load model from {:?}", model_path);
+        debug!(
+            "GPU worker: starting, attempting to load model from {:?}",
+            model_path
+        );
         let mut model = load_model(model_path.to_str().unwrap()).expect("failed to load model");
         debug!("GPU worker: model loaded successfully");
 
@@ -216,7 +226,7 @@ pub fn start_gpu_worker(
             let batch = gpu.pop_batch(max_batch_size);
 
             if batch.is_empty() {
-                debug!("No batch available, yielding...");
+                // debug!("No batch available, yielding...");
                 std::thread::yield_now();
                 continue;
             }
