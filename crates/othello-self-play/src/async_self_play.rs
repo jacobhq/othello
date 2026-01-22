@@ -45,7 +45,20 @@ fn play_one_game(
         let tree = Tree::new();
         let search_handle = eval_queue.search_handle();
 
-        // IMPORTANT: keep this small
+        // --- First, expand the root with a single simulation ---
+        {
+            let mut init_worker = SearchWorker::new(tree.clone(), search_handle.clone());
+            init_worker.simulate(&game);
+            while init_worker.has_pending() {
+                init_worker.poll_results();
+                std::thread::yield_now();
+            }
+        }
+
+        // --- Add Dirichlet noise to the root node for exploration ---
+        tree.add_dirichlet_noise(tree.root(), 0.3, 0.25);
+
+        // --- Run the rest of the simulations in parallel ---
         let num_threads = tree_threads;
         let barrier = Arc::new(Barrier::new(num_threads));
 
@@ -61,7 +74,9 @@ fn play_one_game(
                 let mut worker = SearchWorker::new(tree, handle);
                 barrier.wait();
 
-                let sims_per_thread = (sims_per_move / num_threads as u32).max(1);
+                // Subtract 1 because we already did one simulation for root expansion
+                let remaining_sims = sims_per_move.saturating_sub(1);
+                let sims_per_thread = (remaining_sims / num_threads as u32).max(1);
 
                 for _ in 0..sims_per_thread {
                     worker.simulate(&root_game);

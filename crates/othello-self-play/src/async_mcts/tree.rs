@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use crate::distr::dirichlet;
 
 /// Index into the tree arena
 pub type NodeId = usize;
@@ -188,5 +189,33 @@ impl Tree {
                 (action, c.visits)
             })
             .collect()
+    }
+
+    /// Apply Dirichlet noise to a node's children priors.
+    ///
+    /// New prior = (1 - epsilon) * original_prior + epsilon * noise
+    ///
+    /// # Arguments
+    /// * `node_id` - The node whose children will have noise added
+    /// * `alpha` - Dirichlet concentration parameter (typically 0.3 for Othello/chess)
+    /// * `epsilon` - Mixing weight for noise (typically 0.25)
+    pub fn add_dirichlet_noise(&self, node_id: NodeId, alpha: f32, epsilon: f32) {
+        let node = self.node(node_id);
+        let inner = node.inner.lock().unwrap();
+
+        let n_children = inner.children.len();
+        if n_children == 0 {
+            return;
+        }
+
+        // Sample Dirichlet noise
+        let noise = dirichlet(alpha, n_children);
+
+        // Apply noise to each child's prior
+        for (i, &child_id) in inner.children.values().enumerate() {
+            let child = self.node(child_id);
+            let mut child_inner = child.inner.lock().unwrap();
+            child_inner.prior = (1.0 - epsilon) * child_inner.prior + epsilon * noise[i];
+        }
     }
 }
