@@ -66,8 +66,8 @@ fn main() -> anyhow::Result<()> {
 
     let prefix = args.prefix.unwrap_or_default();
 
-    let num_parallel_games = 8usize; // or 4, 8, etc.
-    let mcts_threads_per_game = 2usize;            // small
+    let num_parallel_games = num_cpus::get_physical() + 2;
+    let mcts_threads_per_game = 2usize;
 
     // NEW async self-play
     let samples: Vec<Sample> = generate_self_play_data(

@@ -12,9 +12,10 @@ clap = { version = "4.5.53", features = ["derive"] }
 anyhow = "1.0.100"
 tempfile = "3.23.0"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = [ "env-filter", "fmt" ] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "fmt"] }
 rayon = "1.11.0"
 crossbeam = "0.8.4"
 dashmap = "7.0.0-rc2"
 indicatif = "0.18.3"
 tracing-indicatif = "0.3.14"
+num_cpus = "1.17.0"
