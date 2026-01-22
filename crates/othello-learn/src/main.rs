@@ -55,7 +55,6 @@ fn main() {
         let mut self_play = Command::new("../othello-self-play/target/release/othello-self-play");
 
         self_play
-            .env("RUST_LOG", "info,ort=warn")
             .env("LD_LIBRARY_PATH", "../othello-self-play/target/release")
             .arg("--out").arg("../othello-self-play/data")
             .arg("--offset").arg(base_offset.to_string())

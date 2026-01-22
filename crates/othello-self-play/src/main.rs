@@ -3,6 +3,10 @@ use crate::write_data::write_samples;
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
+use tracing_indicatif::IndicatifLayer;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 mod neural_net;
 mod write_data;
@@ -46,9 +50,17 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
+    let indicatif_layer = IndicatifLayer::new();
     let args = Args::parse();
 
-    tracing_subscriber::fmt::init();
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,ort=warn"));
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
+        .with(indicatif_layer)
+        .init();
 
     std::fs::create_dir_all(&args.out)?;
 

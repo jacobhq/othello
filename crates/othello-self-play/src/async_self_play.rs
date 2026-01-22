@@ -7,13 +7,15 @@ use crate::async_mcts::tree::Tree;
 use crate::eval_queue::{EvalQueue, EvalResult, GpuHandle};
 use crate::neural_net::{load_model, nn_eval_batch};
 use anyhow::{Result, anyhow};
+use indicatif::{ProgressBar, ProgressStyle};
 use othello::othello_game::{Color, Move, OthelloGame};
 use rand::distr::weighted::WeightedIndex;
 use rand::prelude::*;
 use rand::rng;
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
-use tracing::{debug, info};
+use tracing::{debug, info, info_span};
+use tracing_indicatif::span_ext::IndicatifSpanExt;
 
 /// Represents a single self-play training sample
 #[derive(Clone)]
@@ -154,6 +156,17 @@ pub fn generate_self_play_data(
     let eval_queue = EvalQueue::new();
     let _gpu_thread = start_gpu_worker(eval_queue.gpu_handle(), model, 128);
 
+    let span = info_span!("self_play");
+    span.pb_set_length(games as u64);
+    span.pb_set_style(
+        &indicatif::ProgressStyle::with_template(
+            "{span_child_prefix}[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} games"
+        )
+            .unwrap()
+            .progress_chars("##-"),
+    );
+    let _guard = span.enter();
+
     // ---------------- Parallel self-play ----------------
     let pool = ThreadPoolBuilder::new()
         .num_threads(game_threads) // Set N = 4
@@ -163,20 +176,22 @@ pub fn generate_self_play_data(
         (0..games)
             .into_par_iter()
             .map(|game_idx| {
-                play_one_game(
+                let res = play_one_game(
                     game_idx,
                     prefix,
                     sims_per_move,
                     eval_queue.clone(),
                     tree_threads,
-                )
+                );
+                span.pb_inc(1);
+                res
             })
             .try_reduce(Vec::new, |mut acc, mut samples| {
                 acc.append(&mut samples);
                 Ok(acc)
             })
     });
-
+    
     all_samples
 }
 
