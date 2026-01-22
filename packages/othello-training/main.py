@@ -32,12 +32,17 @@ def load_single_bin_file(path):
     return states, policies, values, n
 
 
-def find_recent_data_files(data_dir, window_size=3):
+def find_recent_data_files(data_dir, window_size=3, prefix=None):
     """
     Find the most recent `window_size` iterations worth of .bin files.
 
-    Files are sorted by name (assumes naming like selfplay_00000_00001.bin)
+    Files are sorted by name (assumes naming like prefix_selfplay_00000_00001.bin)
     and the last `window_size` files are returned.
+
+    Args:
+        data_dir: Directory containing .bin files
+        window_size: Number of recent files to use
+        prefix: If provided, only include files starting with this prefix
     """
     import glob
     import os
@@ -45,13 +50,20 @@ def find_recent_data_files(data_dir, window_size=3):
     pattern = os.path.join(data_dir, "**/*.bin")
     all_files = sorted(glob.glob(pattern, recursive=True))
 
+    # Filter by prefix if provided
+    if prefix:
+        all_files = [f for f in all_files if os.path.basename(f).startswith(prefix)]
+
     if not all_files:
-        raise ValueError(f"No .bin files found in {data_dir}")
+        raise ValueError(f"No .bin files found in {data_dir}" +
+                        (f" with prefix '{prefix}'" if prefix else ""))
 
     # Take the last `window_size` files
     selected = all_files[-window_size:] if len(all_files) > window_size else all_files
 
-    print(f"Found {len(all_files)} total .bin files, using last {len(selected)}:")
+    print(f"Found {len(all_files)} total .bin files" +
+          (f" with prefix '{prefix}'" if prefix else "") +
+          f", using last {len(selected)}:")
     for f in selected:
         print(f"  - {os.path.basename(f)}")
 
@@ -59,7 +71,7 @@ def find_recent_data_files(data_dir, window_size=3):
 
 
 class OthelloDataset(Dataset):
-    def __init__(self, path, window_size=None):
+    def __init__(self, path, window_size=None, prefix=None):
         """
         Load training data from one or more .bin files.
 
@@ -68,6 +80,7 @@ class OthelloDataset(Dataset):
                   or a comma-separated list of .bin files.
             window_size: If path is a directory, only use the last `window_size`
                         files (sorted by name). If None, use all files.
+            prefix: If path is a directory, only include files starting with this prefix.
         """
         import os
 
@@ -76,10 +89,14 @@ class OthelloDataset(Dataset):
         # Determine which files to load
         if os.path.isdir(path):
             if window_size is not None:
-                files = find_recent_data_files(path, window_size)
+                files = find_recent_data_files(path, window_size, prefix=prefix)
             else:
                 import glob
-                files = sorted(glob.glob(os.path.join(path, "**/*.bin"), recursive=True))
+                all_files = sorted(glob.glob(os.path.join(path, "**/*.bin"), recursive=True))
+                if prefix:
+                    files = [f for f in all_files if os.path.basename(f).startswith(prefix)]
+                else:
+                    files = all_files
                 print(f"Loading all {len(files)} .bin files from {path}")
         elif "," in path:
             files = [f.strip() for f in path.split(",")]
@@ -478,6 +495,8 @@ if __name__ == "__main__":
                         help="Path to .bin file, directory of .bin files, or comma-separated list of files")
     parser.add_argument("--window", type=int, default=3,
                         help="Number of recent data files to use (sliding window). Only applies when --data is a directory.")
+    parser.add_argument("--data-prefix", type=str, default=None,
+                        help="Only load data files starting with this prefix. Only applies when --data is a directory.")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -502,7 +521,7 @@ if __name__ == "__main__":
         if args.data is None:
             raise ValueError("--data is required for training")
 
-        dataset = OthelloDataset(args.data, window_size=args.window)
+        dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
         model = OthelloNet(num_blocks=args.res_blocks)
 
         train(

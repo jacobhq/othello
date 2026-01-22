@@ -141,6 +141,8 @@ fn main() {
             .arg(data_dir)
             .arg("--window")
             .arg(args.window.to_string())
+            .arg("--data-prefix")
+            .arg(&args.prefix)
             .arg("--out-prefix")
             .arg(&model_out_prefix);
 
