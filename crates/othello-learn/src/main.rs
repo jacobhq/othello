@@ -15,6 +15,7 @@ struct Args {
     #[arg(long)] model_res_blocks: Option<u32>,
     #[arg(long)] model_lr: Option<f32>,
     #[arg(long)] model_offset: Option<u32>,
+    #[arg(long, default_value_t = 3)] window: u32,
 }
 
 fn main() {
@@ -27,6 +28,9 @@ fn main() {
 
     let sp_offset0 = args.self_play_offset.unwrap_or(0);
     let model_offset0 = args.model_offset.unwrap_or(0);
+
+    // Data directory for all self-play output
+    let data_dir = "../othello-self-play/data";
 
     for i in 0..args.iterations {
         let base_offset = sp_offset0 + i * args.self_play_games;
@@ -56,7 +60,7 @@ fn main() {
 
         self_play
             .env("LD_LIBRARY_PATH", "../othello-self-play/target/release")
-            .arg("--out").arg("../othello-self-play/data")
+            .arg("--out").arg(data_dir)
             .arg("--offset").arg(base_offset.to_string())
             .arg("--games").arg(args.self_play_games.to_string())
             .arg("--prefix").arg(&args.prefix);
@@ -76,13 +80,8 @@ fn main() {
 
         assert!(self_play.status().expect("self-play failed").success());
 
-        // Python training
-        let dataset_path = format!(
-            "../othello-self-play/data/{}_selfplay_{:05}_{:05}.bin",
-            &args.prefix,
-            base_offset,
-            base_offset + args.self_play_games
-        );
+        // Python training with sliding window
+        // Use the data directory and let Python find the last N files
 
         let model_out_prefix = format!(
             "../../packages/othello-training/models/{}_{}",
@@ -94,7 +93,9 @@ fn main() {
         train
             .arg("../../packages/othello-training/main.py")
             .arg("--data")
-            .arg(&dataset_path)
+            .arg(data_dir)
+            .arg("--window")
+            .arg(args.window.to_string())
             .arg("--out-prefix")
             .arg(&model_out_prefix);
 
@@ -110,6 +111,11 @@ fn main() {
         if let Some(rb) = args.model_res_blocks {
             train.arg("--res-blocks").arg(rb.to_string());
         }
+
+        println!(
+            "Training on last {} data files from {}",
+            args.window, data_dir
+        );
 
         assert!(train.status().expect("training failed").success());
     }

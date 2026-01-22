@@ -9,40 +9,117 @@ from torch.utils.data import Dataset, DataLoader
 import time
 
 
+def load_single_bin_file(path):
+    """Load samples from a single .bin file, returning (states, policies, values) arrays."""
+    with open(path, "rb") as f:
+        magic, version, n = struct.unpack("<III", f.read(12))
+        assert magic == 0x4F54484C, f"Invalid magic number in {path}"
+        assert version == 1, f"Unsupported version {version} in {path}"
+
+        states = np.zeros((n, 2, 8, 8), dtype=np.float32)
+        policies = np.zeros((n, 64), dtype=np.float32)
+        values = np.zeros((n,), dtype=np.float32)
+
+        for i in range(n):
+            states[i] = (
+                np.frombuffer(f.read(2 * 8 * 8 * 4), dtype=np.int32)
+                .reshape(2, 8, 8)
+                .astype(np.float32)
+            )
+            policies[i] = np.frombuffer(f.read(64 * 4), dtype=np.float32)
+            values[i] = struct.unpack("<f", f.read(4))[0]
+
+    return states, policies, values, n
+
+
+def find_recent_data_files(data_dir, window_size=3):
+    """
+    Find the most recent `window_size` iterations worth of .bin files.
+
+    Files are sorted by name (assumes naming like selfplay_00000_00001.bin)
+    and the last `window_size` files are returned.
+    """
+    import glob
+    import os
+
+    pattern = os.path.join(data_dir, "**/*.bin")
+    all_files = sorted(glob.glob(pattern, recursive=True))
+
+    if not all_files:
+        raise ValueError(f"No .bin files found in {data_dir}")
+
+    # Take the last `window_size` files
+    selected = all_files[-window_size:] if len(all_files) > window_size else all_files
+
+    print(f"Found {len(all_files)} total .bin files, using last {len(selected)}:")
+    for f in selected:
+        print(f"  - {os.path.basename(f)}")
+
+    return selected
+
+
 class OthelloDataset(Dataset):
-    def __init__(self, path):
-        print(f"Opening dataset: {path}")
+    def __init__(self, path, window_size=None):
+        """
+        Load training data from one or more .bin files.
+
+        Args:
+            path: Either a single .bin file, a directory containing .bin files,
+                  or a comma-separated list of .bin files.
+            window_size: If path is a directory, only use the last `window_size`
+                        files (sorted by name). If None, use all files.
+        """
+        import os
+
         start_time = time.time()
 
-        with open(path, "rb") as f:
-            magic, version, n = struct.unpack("<III", f.read(12))
-            assert magic == 0x4F54484C  # "OTHL"
-            assert version == 1
+        # Determine which files to load
+        if os.path.isdir(path):
+            if window_size is not None:
+                files = find_recent_data_files(path, window_size)
+            else:
+                import glob
+                files = sorted(glob.glob(os.path.join(path, "**/*.bin"), recursive=True))
+                print(f"Loading all {len(files)} .bin files from {path}")
+        elif "," in path:
+            files = [f.strip() for f in path.split(",")]
+            print(f"Loading {len(files)} specified .bin files")
+        else:
+            files = [path]
+            print(f"Loading single file: {path}")
 
-            print(f"Loading {n:,} samples into memory...")
+        if not files:
+            raise ValueError(f"No .bin files found at {path}")
 
-            self.states = np.zeros((n, 2, 8, 8), dtype=np.float32)
-            self.policies = np.zeros((n, 64), dtype=np.float32)
-            self.values = np.zeros((n,), dtype=np.float32)
+        # First pass: count total samples
+        total_samples = 0
+        file_sample_counts = []
+        for f in files:
+            with open(f, "rb") as fp:
+                magic, version, n = struct.unpack("<III", fp.read(12))
+                assert magic == 0x4F54484C, f"Invalid magic in {f}"
+                file_sample_counts.append(n)
+                total_samples += n
 
-            # Show progress every 10% of samples
-            checkpoint = max(1, n // 10)
+        print(f"Total samples to load: {total_samples:,}")
 
-            for i in range(n):
-                self.states[i] = (
-                    np.frombuffer(f.read(2 * 8 * 8 * 4), dtype=np.int32)
-                    .reshape(2, 8, 8)
-                    .astype(np.float32)
-                )
-                self.policies[i] = np.frombuffer(f.read(64 * 4), dtype=np.float32)
-                self.values[i] = struct.unpack("<f", f.read(4))[0]
+        # Allocate arrays
+        self.states = np.zeros((total_samples, 2, 8, 8), dtype=np.float32)
+        self.policies = np.zeros((total_samples, 64), dtype=np.float32)
+        self.values = np.zeros((total_samples,), dtype=np.float32)
 
-                if (i + 1) % checkpoint == 0:
-                    pct = (i + 1) / n * 100
-                    print(f"  Loaded {i + 1:,} / {n:,} samples ({pct:.0f}%)")
+        # Load all files
+        offset = 0
+        for file_path, n_samples in zip(files, file_sample_counts):
+            print(f"  Loading {os.path.basename(file_path)} ({n_samples:,} samples)...")
+            states, policies, values, _ = load_single_bin_file(file_path)
+            self.states[offset:offset + n_samples] = states
+            self.policies[offset:offset + n_samples] = policies
+            self.values[offset:offset + n_samples] = values
+            offset += n_samples
 
         elapsed = time.time() - start_time
-        print(f"Dataset loaded in {elapsed:.1f}s ({n / elapsed:.0f} samples/sec)")
+        print(f"Dataset loaded in {elapsed:.1f}s ({total_samples / elapsed:.0f} samples/sec)")
 
     def __len__(self):
         return len(self.values)
@@ -397,7 +474,10 @@ def export_dummy_model(prefix, device="cpu"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=False)
+    parser.add_argument("--data", required=False,
+                        help="Path to .bin file, directory of .bin files, or comma-separated list of files")
+    parser.add_argument("--window", type=int, default=3,
+                        help="Number of recent data files to use (sliding window). Only applies when --data is a directory.")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -422,7 +502,7 @@ if __name__ == "__main__":
         if args.data is None:
             raise ValueError("--data is required for training")
 
-        dataset = OthelloDataset(args.data)
+        dataset = OthelloDataset(args.data, window_size=args.window)
         model = OthelloNet(num_blocks=args.res_blocks)
 
         train(

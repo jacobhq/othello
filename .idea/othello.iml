@@ -15,8 +15,9 @@
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-self-play/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-learn/target" />
+      <excludeFolder url="file://$MODULE_DIR$/packages/othello-training/.venv" />
     </content>
-    <orderEntry type="jdk" jdkName="3.14 WSL (Ubuntu-24.04): (/home/jacob/code/othello/packages/othello-training/.venv/bin/python3)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="uv (othello-training)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
