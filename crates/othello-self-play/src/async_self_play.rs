@@ -16,6 +16,7 @@ use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 use tracing::{debug, info, info_span};
 use tracing_indicatif::span_ext::IndicatifSpanExt;
+use crate::symmetry::get_symmetries;
 
 /// Represents a single self-play training sample
 #[derive(Clone)]
@@ -132,6 +133,7 @@ fn play_one_game(
             s.value = if p == Color::Black { outcome } else { -outcome };
             s
         })
+        .flat_map(get_symmetries)
         .collect::<Vec<_>>();
 
     info!(
@@ -159,10 +161,9 @@ pub fn generate_self_play_data(
     let span = info_span!("self_play");
     span.pb_set_length(games as u64);
     span.pb_set_style(
-        &indicatif::ProgressStyle::with_template(
+        &ProgressStyle::with_template(
             "{span_child_prefix}[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} games"
-        )
-            .unwrap()
+        )?
             .progress_chars("##-"),
     );
     let _guard = span.enter();
