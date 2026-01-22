@@ -191,7 +191,7 @@ pub fn generate_self_play_data(
                 Ok(acc)
             })
     });
-    
+
     all_samples
 }
 
