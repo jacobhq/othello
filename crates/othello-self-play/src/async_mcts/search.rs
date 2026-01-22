@@ -198,7 +198,7 @@ impl<G: Game> SearchWorker<G> {
             None => return, // stale / duplicate
         };
 
-        let PendingEval { path, leaf, .. } = pending;
+        let PendingEval { path, leaf, state } = pending;
 
         // 🔴 Remove virtual loss from every node where it was added
         // path[0] is the root → no virtual loss there
@@ -206,8 +206,21 @@ impl<G: Game> SearchWorker<G> {
             self.tree.revert_virtual_loss(node, self.virtual_loss);
         }
 
-        // Expand leaf
-        self.tree.expand(leaf, &result.policy);
+        // Filter policy to legal moves only
+        let legal_moves = state.legal_moves();
+        let legal_actions: std::collections::HashSet<usize> = legal_moves
+            .iter()
+            .map(|(r, c)| r * 8 + c)
+            .collect();
+
+        let filtered_policy: Vec<(usize, f32)> = result
+            .policy
+            .into_iter()
+            .filter(|(action, _)| legal_actions.contains(action))
+            .collect();
+
+        // Expand leaf with filtered policy
+        self.tree.expand(leaf, &filtered_policy);
 
         // Backprop real value
         self.tree.backprop(&path, result.value);
