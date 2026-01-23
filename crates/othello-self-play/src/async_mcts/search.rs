@@ -119,8 +119,8 @@ impl<G: Game> SearchWorker<G> {
             path.push(node_id);
 
             if state.is_terminal() {
-                // Value must be from the current player's perspective at the leaf,
-                // not root_player, because backprop flips signs as it goes up
+                // Value must be from the leaf's current player perspective
+                // because backprop flips signs going up to the root
                 let value = state.terminal_value(state.current_player());
                 self.tree.backprop(&path, value);
                 return;
@@ -163,7 +163,7 @@ impl<G: Game> SearchWorker<G> {
         let leaf = node_id;
         let id = NEXT_EVAL_ID.fetch_add(1, Ordering::Relaxed);
 
-        // Encode from current player's perspective so NN value is correct for backprop
+        // Encode from leaf's current player perspective for correct backprop
         let encoded = state.encode(state.current_player());
 
         // FIX 1: insert pending first

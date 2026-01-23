@@ -125,7 +125,7 @@ impl Tree {
             let q = if child_inner.visits == 0 {
                 0.0
             } else {
-                // Negate because child's value is from opponent's perspective
+                // Negate: child's value is from opponent's perspective
                 -child_inner.value_sum / child_inner.visits as f32
             };
 
@@ -149,7 +149,8 @@ impl Tree {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
         inner.visits += 1;
-        inner.value_sum -= loss;
+        // Add to value_sum: after Q negation, this makes node less attractive
+        inner.value_sum += loss;
     }
 
     /// Revert virtual loss
@@ -157,7 +158,7 @@ impl Tree {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
         inner.visits -= 1;
-        inner.value_sum += loss;
+        inner.value_sum -= loss;
     }
 
     /// Backpropagate evaluation result
