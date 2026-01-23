@@ -156,7 +156,7 @@ pub(crate) fn neural_net(mut game: OthelloGame, human_color: Color, model: PathB
             }
         } else {
             // NN's turn
-            let legal = game.legal_moves(human_color);
+            let legal = game.legal_moves(game.current_turn);
 
             // Handle turn skip
             if legal.is_empty() {
