@@ -323,6 +323,7 @@ def train(
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     num_batches = len(loader)
 
@@ -427,6 +428,12 @@ def train(
             "value_loss_sem": value_loss_sem,
             "batches": batch_losses,
         }
+        
+        print(f"  Learning rate: {scheduler.get_last_lr()[0]:.6f}")
+
+        # Step the learning rate scheduler
+        scheduler.step()
+
         training_stats["epochs"].append(epoch_stats)
 
         export_onnx(model, epoch + 1, device, prefix)
