@@ -135,7 +135,7 @@ fn main() {
                 args.model_epochs.unwrap_or(2)
             }
         );
-        self_play.arg(&model_in);
+        self_play.arg("--model").arg(&model_in);
 
         assert!(self_play.status().expect("self-play failed").success());
 
