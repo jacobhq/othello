@@ -124,9 +124,9 @@ fn play_one_game(
         if legal_moves.is_empty() {
             game.mcts_play(Move::Pass, current_player).unwrap();
         } else {
-            // Temperature annealing: use temp=1.0 for first 20 moves (exploration),
-            // then temp=0.1 for remaining moves (exploitation)
-            let temperature = if move_number < 20 { 1.0f32 } else { 0.1f32 };
+            // Temperature annealing: use temp=1.0 for first 10 moves (exploration),
+            // then temp=0.05 for remaining moves (exploitation)
+            let temperature = if move_number < 10 { 1.0f32 } else { 0.05f32 };
             
             let mut probs: Vec<f32> = legal_moves
                 .iter()
