@@ -79,6 +79,10 @@ enum Command {
         /// Training iteration (0-2 uses reduced noise for better early training)
         #[arg(long, short, default_value_t = 0)]
         iteration: u32,
+
+        /// Disable reduced Dirichlet noise for early iterations (always use eps=0.25)
+        #[arg(long, default_value_t = false)]
+        no_early_noise_reduction: bool,
     },
     /// Evaluate two models head-to-head
     Eval {
@@ -137,7 +141,8 @@ fn main() -> anyhow::Result<()> {
             offset,
             prefix,
             iteration,
-        }) => run_selfplay(games, sims, out, model, offset, prefix, iteration),
+            no_early_noise_reduction,
+        }) => run_selfplay(games, sims, out, model, offset, prefix, iteration, no_early_noise_reduction),
         None => {
             // Backwards compatibility: run self-play with top-level args
             let model = args.model.expect("--model is required for self-play");
@@ -149,6 +154,7 @@ fn main() -> anyhow::Result<()> {
                 args.offset,
                 args.prefix,
                 0, // default iteration for backwards compat
+                false, // use early noise reduction by default
             )
         }
     }
@@ -162,6 +168,7 @@ fn run_selfplay(
     offset: usize,
     prefix: Option<String>,
     iteration: u32,
+    no_early_noise_reduction: bool,
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(&out)?;
 
@@ -170,12 +177,21 @@ fn run_selfplay(
     let num_parallel_games = num_cpus::get_physical() + 2;
     let mcts_threads_per_game = 2usize;
 
+    // If flag is set, always use standard noise; otherwise reduce for early iterations
+    let dirichlet_eps = if no_early_noise_reduction {
+        0.25
+    } else if iteration <= 2 {
+        0.15
+    } else {
+        0.25
+    };
+
     info!(
         "Starting self-play: iteration={}, games={}, sims={}, dirichlet_eps={}",
         iteration,
         games,
         sims,
-        if iteration <= 2 { 0.15 } else { 0.25 }
+        dirichlet_eps
     );
 
     let samples: Vec<Sample> = generate_self_play_data(
@@ -186,6 +202,7 @@ fn run_selfplay(
         num_parallel_games,
         mcts_threads_per_game,
         iteration,
+        no_early_noise_reduction,
     )?;
 
     info!("Generated {} samples", samples.len());

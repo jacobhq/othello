@@ -33,6 +33,7 @@ fn play_one_game(
     eval_queue: EvalQueue,
     tree_threads: usize,
     iteration: u32,
+    no_early_noise_reduction: bool,
 ) -> Result<Vec<Sample>> {
     debug!("Entering game {game_idx}");
     let mut game = OthelloGame::new();
@@ -60,7 +61,13 @@ fn play_one_game(
         // --- Add Dirichlet noise to the root node for exploration ---
         // Use less noise in early iterations (0-2) when the network is weak/random
         // This lets MCTS concentrate visits on promising moves
-        let dirichlet_epsilon = if iteration <= 2 { 0.15 } else { 0.25 };
+        let dirichlet_epsilon = if no_early_noise_reduction {
+            0.25
+        } else if iteration <= 2 {
+            0.15
+        } else {
+            0.25
+        };
         tree.add_dirichlet_noise(tree.root(), 0.3, dirichlet_epsilon);
 
         // --- Run the rest of the simulations in parallel ---
@@ -193,6 +200,7 @@ pub fn generate_self_play_data(
     game_threads: usize,
     tree_threads: usize,
     iteration: u32,
+    no_early_noise_reduction: bool,
 ) -> Result<Vec<Sample>> {
     // ---------------- Shared GPU infra ----------------
     let eval_queue = EvalQueue::new();
@@ -224,6 +232,7 @@ pub fn generate_self_play_data(
                     eval_queue.clone(),
                     tree_threads,
                     iteration,
+                    no_early_noise_reduction,
                 );
                 span.pb_inc(1);
                 res

@@ -33,6 +33,9 @@ struct Args {
     eval_sims: u32,
     #[arg(long, default_value_t = false)]
     skip_eval: bool,
+    /// Disable reduced Dirichlet noise for early iterations (always use eps=0.25)
+    #[arg(long, default_value_t = false)]
+    no_early_noise_reduction: bool,
 }
 
 fn main() {
@@ -96,8 +99,12 @@ fn main() {
         // Rust self-play
         let mut self_play = Command::new("../othello-self-play/target/release/othello-self-play");
 
+        // Calculate the actual iteration number (accounting for resume offset)
+        let actual_iteration = model_offset0 + i;
+
         self_play
             .env("LD_LIBRARY_PATH", "../othello-self-play/target/release")
+            .arg("selfplay")
             .arg("--out")
             .arg(data_dir)
             .arg("--offset")
@@ -105,7 +112,13 @@ fn main() {
             .arg("--games")
             .arg(args.self_play_games.to_string())
             .arg("--prefix")
-            .arg(&args.prefix);
+            .arg(&args.prefix)
+            .arg("--iteration")
+            .arg(actual_iteration.to_string());
+
+        if args.no_early_noise_reduction {
+            self_play.arg("--no-early-noise-reduction");
+        }
 
         if let Some(sims) = args.self_play_sims {
             self_play.arg("--sims").arg(sims.to_string());
