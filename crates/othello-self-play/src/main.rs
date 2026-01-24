@@ -75,6 +75,10 @@ enum Command {
         /// File name prefix
         #[arg(long, short)]
         prefix: Option<String>,
+
+        /// Training iteration (0-2 uses reduced noise for better early training)
+        #[arg(long, short, default_value_t = 0)]
+        iteration: u32,
     },
     /// Evaluate two models head-to-head
     Eval {
@@ -132,7 +136,8 @@ fn main() -> anyhow::Result<()> {
             model,
             offset,
             prefix,
-        }) => run_selfplay(games, sims, out, model, offset, prefix),
+            iteration,
+        }) => run_selfplay(games, sims, out, model, offset, prefix, iteration),
         None => {
             // Backwards compatibility: run self-play with top-level args
             let model = args.model.expect("--model is required for self-play");
@@ -143,6 +148,7 @@ fn main() -> anyhow::Result<()> {
                 model,
                 args.offset,
                 args.prefix,
+                0, // default iteration for backwards compat
             )
         }
     }
@@ -155,6 +161,7 @@ fn run_selfplay(
     model: PathBuf,
     offset: usize,
     prefix: Option<String>,
+    iteration: u32,
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(&out)?;
 
@@ -163,6 +170,14 @@ fn run_selfplay(
     let num_parallel_games = num_cpus::get_physical() + 2;
     let mcts_threads_per_game = 2usize;
 
+    info!(
+        "Starting self-play: iteration={}, games={}, sims={}, dirichlet_eps={}",
+        iteration,
+        games,
+        sims,
+        if iteration <= 2 { 0.15 } else { 0.25 }
+    );
+
     let samples: Vec<Sample> = generate_self_play_data(
         &prefix,
         games,
@@ -170,6 +185,7 @@ fn run_selfplay(
         model,
         num_parallel_games,
         mcts_threads_per_game,
+        iteration,
     )?;
 
     info!("Generated {} samples", samples.len());

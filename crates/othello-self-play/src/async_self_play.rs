@@ -32,11 +32,13 @@ fn play_one_game(
     sims_per_move: u32,
     eval_queue: EvalQueue,
     tree_threads: usize,
+    iteration: u32,
 ) -> Result<Vec<Sample>> {
     debug!("Entering game {game_idx}");
     let mut game = OthelloGame::new();
 
     let mut game_samples: Vec<(Sample, Color)> = Vec::new();
+    let mut move_number = 0u32;
 
     while !game.game_over() {
         let current_player = game.current_turn;
@@ -56,7 +58,10 @@ fn play_one_game(
         }
 
         // --- Add Dirichlet noise to the root node for exploration ---
-        tree.add_dirichlet_noise(tree.root(), 0.3, 0.25);
+        // Use less noise in early iterations (0-2) when the network is weak/random
+        // This lets MCTS concentrate visits on promising moves
+        let dirichlet_epsilon = if iteration <= 2 { 0.15 } else { 0.25 };
+        tree.add_dirichlet_noise(tree.root(), 0.3, dirichlet_epsilon);
 
         // --- Run the rest of the simulations in parallel ---
         let num_threads = tree_threads;
@@ -119,12 +124,30 @@ fn play_one_game(
         if legal_moves.is_empty() {
             game.mcts_play(Move::Pass, current_player).unwrap();
         } else {
-            let mut probs: Vec<f32> = legal_moves.iter().map(|(r, c)| policy[r * 8 + c]).collect();
+            // Temperature annealing: use temp=1.0 for first 20 moves (exploration),
+            // then temp=0.1 for remaining moves (exploitation)
+            let temperature = if move_number < 20 { 1.0f32 } else { 0.1f32 };
+            
+            let mut probs: Vec<f32> = legal_moves
+                .iter()
+                .map(|(r, c)| {
+                    let p = policy[r * 8 + c];
+                    if temperature < 1.0 {
+                        // Apply temperature: p^(1/T), then re-normalize
+                        p.powf(1.0 / temperature)
+                    } else {
+                        p
+                    }
+                })
+                .collect();
 
             let sum: f32 = probs.iter().sum();
             if sum <= f32::EPSILON {
                 let u = 1.0 / probs.len() as f32;
                 probs.iter_mut().for_each(|p| *p = u);
+            } else {
+                // Normalize after temperature scaling
+                probs.iter_mut().for_each(|p| *p /= sum);
             }
 
             let dist = WeightedIndex::new(&probs)?;
@@ -132,6 +155,7 @@ fn play_one_game(
             let (r, c) = legal_moves[choice];
             game.mcts_play(Move::Move(r, c), current_player).unwrap();
         }
+        move_number += 1;
     }
 
     // ---------------- Backfill values ----------------
@@ -168,6 +192,7 @@ pub fn generate_self_play_data(
     model: PathBuf,
     game_threads: usize,
     tree_threads: usize,
+    iteration: u32,
 ) -> Result<Vec<Sample>> {
     // ---------------- Shared GPU infra ----------------
     let eval_queue = EvalQueue::new();
@@ -198,6 +223,7 @@ pub fn generate_self_play_data(
                     sims_per_move,
                     eval_queue.clone(),
                     tree_threads,
+                    iteration,
                 );
                 span.pb_inc(1);
                 res
