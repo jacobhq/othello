@@ -50,9 +50,10 @@ fn main() {
     let data_dir = "../othello-self-play/data";
 
     // Path to the random/initial model (epoch 0) for baseline comparison
+    // Always use model 0 as the baseline, even when resuming
     let baseline_model = format!(
-        "../../packages/othello-training/models/{}_{}_othello_net_epoch_000.onnx",
-        &args.prefix, model_offset0
+        "../../packages/othello-training/models/{}_0_othello_net_epoch_000.onnx",
+        &args.prefix
     );
 
     // Track evaluation results
@@ -64,8 +65,8 @@ fn main() {
 
         println!("=== Iteration {} ===", i);
 
-        // Generate dummy model for iteration 0
-        if i == 0 {
+        // Generate dummy model for iteration 0 (only when not resuming)
+        if i == 0 && model_offset0 == 0 {
             println!("Generating initial ONNX model for iteration 0...");
 
             let mut init_cmd = Command::new(python_path);
@@ -115,7 +116,7 @@ fn main() {
             "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
             &args.prefix,
             model_idx,
-            if i == 0 {
+            if model_idx == 0 {
                 0
             } else {
                 args.model_epochs.unwrap_or(2)
