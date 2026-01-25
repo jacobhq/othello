@@ -1,5 +1,5 @@
 use crate::async_self_play::{Sample, generate_self_play_data};
-use crate::evaluate::evaluate_models;
+use crate::evaluate::{evaluate_models, evaluate_vs_random};
 use crate::write_data::write_samples;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -102,6 +102,20 @@ enum Command {
         #[arg(short, long, default_value_t = 100)]
         sims: u32,
     },
+    /// Evaluate a model against a true random player
+    EvalRandom {
+        /// Path to the model to evaluate
+        #[arg(long)]
+        model: PathBuf,
+
+        /// Number of evaluation games
+        #[arg(short, long, default_value_t = 100)]
+        games: u32,
+
+        /// Simulations per move
+        #[arg(short, long, default_value_t = 100)]
+        sims: u32,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -131,6 +145,16 @@ fn main() -> anyhow::Result<()> {
             let result = evaluate_models(new_model, old_model, games, sims)?;
             println!("{}", result);
             // Exit with code based on win rate (0 = new model wins convincingly)
+            if result.win_rate() >= 0.55 {
+                std::process::exit(0);
+            } else {
+                std::process::exit(1);
+            }
+        }
+        Some(Command::EvalRandom { model, games, sims }) => {
+            let result = evaluate_vs_random(model, games, sims)?;
+            println!("{}", result);
+            // Exit with code based on win rate
             if result.win_rate() >= 0.55 {
                 std::process::exit(0);
             } else {

@@ -281,17 +281,15 @@ fn main() {
                 eval_results.push(result_str);
             }
 
-            // Eval vs baseline (random/epoch 0 model)
-            println!("\n--- Eval: New model vs Baseline (random) ---");
+            // Eval vs true random player
+            println!("\n--- Eval: New model vs True Random ---");
             let mut baseline_cmd =
                 Command::new("../othello-self-play/target/release/othello-self-play");
             baseline_cmd
                 .env("LD_LIBRARY_PATH", "../othello-self-play/target/release")
-                .arg("eval")
-                .arg("--new-model")
+                .arg("eval-random")
+                .arg("--model")
                 .arg(&new_model)
-                .arg("--old-model")
-                .arg(&baseline_model)
                 .arg("--games")
                 .arg(args.eval_games.to_string())
                 .arg("--sims")
