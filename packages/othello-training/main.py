@@ -9,40 +9,134 @@ from torch.utils.data import Dataset, DataLoader
 import time
 
 
+def load_single_bin_file(path):
+    """Load samples from a single .bin file, returning (states, policies, values) arrays."""
+    with open(path, "rb") as f:
+        magic, version, n = struct.unpack("<III", f.read(12))
+        assert magic == 0x4F54484C, f"Invalid magic number in {path}"
+        assert version == 1, f"Unsupported version {version} in {path}"
+
+        states = np.zeros((n, 2, 8, 8), dtype=np.float32)
+        policies = np.zeros((n, 64), dtype=np.float32)
+        values = np.zeros((n,), dtype=np.float32)
+
+        for i in range(n):
+            states[i] = (
+                np.frombuffer(f.read(2 * 8 * 8 * 4), dtype=np.int32)
+                .reshape(2, 8, 8)
+                .astype(np.float32)
+            )
+            policies[i] = np.frombuffer(f.read(64 * 4), dtype=np.float32)
+            values[i] = struct.unpack("<f", f.read(4))[0]
+
+    return states, policies, values, n
+
+
+def find_recent_data_files(data_dir, window_size=3, prefix=None):
+    """
+    Find the most recent `window_size` iterations worth of .bin files.
+
+    Files are sorted by name (assumes naming like prefix_selfplay_00000_00001.bin)
+    and the last `window_size` files are returned.
+
+    Args:
+        data_dir: Directory containing .bin files
+        window_size: Number of recent files to use
+        prefix: If provided, only include files starting with this prefix
+    """
+    import glob
+    import os
+
+    pattern = os.path.join(data_dir, "**/*.bin")
+    all_files = sorted(glob.glob(pattern, recursive=True))
+
+    # Filter by prefix if provided
+    if prefix:
+        all_files = [f for f in all_files if os.path.basename(f).startswith(prefix)]
+
+    if not all_files:
+        raise ValueError(f"No .bin files found in {data_dir}" +
+                        (f" with prefix '{prefix}'" if prefix else ""))
+
+    # Take the last `window_size` files
+    selected = all_files[-window_size:] if len(all_files) > window_size else all_files
+
+    print(f"Found {len(all_files)} total .bin files" +
+          (f" with prefix '{prefix}'" if prefix else "") +
+          f", using last {len(selected)}:")
+    for f in selected:
+        print(f"  - {os.path.basename(f)}")
+
+    return selected
+
+
 class OthelloDataset(Dataset):
-    def __init__(self, path):
-        print(f"Opening dataset: {path}")
+    def __init__(self, path, window_size=None, prefix=None):
+        """
+        Load training data from one or more .bin files.
+
+        Args:
+            path: Either a single .bin file, a directory containing .bin files,
+                  or a comma-separated list of .bin files.
+            window_size: If path is a directory, only use the last `window_size`
+                        files (sorted by name). If None, use all files.
+            prefix: If path is a directory, only include files starting with this prefix.
+        """
+        import os
+
         start_time = time.time()
 
-        with open(path, "rb") as f:
-            magic, version, n = struct.unpack("<III", f.read(12))
-            assert magic == 0x4F54484C  # "OTHL"
-            assert version == 1
+        # Determine which files to load
+        if os.path.isdir(path):
+            if window_size is not None:
+                files = find_recent_data_files(path, window_size, prefix=prefix)
+            else:
+                import glob
+                all_files = sorted(glob.glob(os.path.join(path, "**/*.bin"), recursive=True))
+                if prefix:
+                    files = [f for f in all_files if os.path.basename(f).startswith(prefix)]
+                else:
+                    files = all_files
+                print(f"Loading all {len(files)} .bin files from {path}")
+        elif "," in path:
+            files = [f.strip() for f in path.split(",")]
+            print(f"Loading {len(files)} specified .bin files")
+        else:
+            files = [path]
+            print(f"Loading single file: {path}")
 
-            print(f"Loading {n:,} samples into memory...")
+        if not files:
+            raise ValueError(f"No .bin files found at {path}")
 
-            self.states = np.zeros((n, 2, 8, 8), dtype=np.float32)
-            self.policies = np.zeros((n, 64), dtype=np.float32)
-            self.values = np.zeros((n,), dtype=np.float32)
+        # First pass: count total samples
+        total_samples = 0
+        file_sample_counts = []
+        for f in files:
+            with open(f, "rb") as fp:
+                magic, version, n = struct.unpack("<III", fp.read(12))
+                assert magic == 0x4F54484C, f"Invalid magic in {f}"
+                file_sample_counts.append(n)
+                total_samples += n
 
-            # Show progress every 10% of samples
-            checkpoint = max(1, n // 10)
+        print(f"Total samples to load: {total_samples:,}")
 
-            for i in range(n):
-                self.states[i] = (
-                    np.frombuffer(f.read(2 * 8 * 8 * 4), dtype=np.int32)
-                    .reshape(2, 8, 8)
-                    .astype(np.float32)
-                )
-                self.policies[i] = np.frombuffer(f.read(64 * 4), dtype=np.float32)
-                self.values[i] = struct.unpack("<f", f.read(4))[0]
+        # Allocate arrays
+        self.states = np.zeros((total_samples, 2, 8, 8), dtype=np.float32)
+        self.policies = np.zeros((total_samples, 64), dtype=np.float32)
+        self.values = np.zeros((total_samples,), dtype=np.float32)
 
-                if (i + 1) % checkpoint == 0:
-                    pct = (i + 1) / n * 100
-                    print(f"  Loaded {i + 1:,} / {n:,} samples ({pct:.0f}%)")
+        # Load all files
+        offset = 0
+        for file_path, n_samples in zip(files, file_sample_counts):
+            print(f"  Loading {os.path.basename(file_path)} ({n_samples:,} samples)...")
+            states, policies, values, _ = load_single_bin_file(file_path)
+            self.states[offset:offset + n_samples] = states
+            self.policies[offset:offset + n_samples] = policies
+            self.values[offset:offset + n_samples] = values
+            offset += n_samples
 
         elapsed = time.time() - start_time
-        print(f"Dataset loaded in {elapsed:.1f}s ({n / elapsed:.0f} samples/sec)")
+        print(f"Dataset loaded in {elapsed:.1f}s ({total_samples / elapsed:.0f} samples/sec)")
 
     def __len__(self):
         return len(self.values)
@@ -174,6 +268,39 @@ def export_onnx(model, epoch, device, prefix):
 
     model.train()
 
+def export_initial_model(prefix, num_blocks, device="cpu"):
+    """
+    Exports a randomly initialized OthelloNet WITHOUT training.
+    This is suitable for iteration 0 self-play.
+    """
+    print("Exporting randomly initialized model (no training)")
+
+    model = OthelloNet(num_blocks=num_blocks)
+    model.to(device)
+    model.eval()
+
+    dummy_input = torch.zeros(1, 2, 8, 8, device=device)
+
+    output_path = f"{prefix}_othello_net_epoch_000.onnx"
+    import os
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        output_path,
+        input_names=["board"],
+        output_names=["policy", "value"],
+        dynamic_axes={
+            "board": {0: "batch"},
+            "policy": {0: "batch"},
+            "value": {0: "batch"},
+        },
+        opset_version=17,
+        dynamo=False,
+    )
+
+    print(f"Initial model exported to {output_path}")
 
 def train(
     model,
@@ -195,7 +322,7 @@ def train(
     model.train()
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
     num_batches = len(loader)
 
@@ -304,6 +431,11 @@ def train(
 
         export_onnx(model, epoch + 1, device, prefix)
 
+    # Save PyTorch checkpoint for resuming training
+    checkpoint_file = f"{prefix}_checkpoint.pt"
+    torch.save(model.state_dict(), checkpoint_file)
+    print(f"PyTorch checkpoint saved to {checkpoint_file}")
+
     # Save training statistics to JSON file
     stats_file = f"{prefix}_training_stats.json"
     with open(stats_file, "w") as f:
@@ -312,27 +444,110 @@ def train(
 
     return training_stats
 
+def export_dummy_model(prefix, device="cpu"):
+    """
+    Exports a tiny ONNX model that outputs:
+      - uniform policy over 64 moves
+      - zero value
+    Useful for iteration 0 of self-play when no trained model exists.
+    """
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    import os
+
+    class TinyOthelloNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv2d(2, 16, 3, padding=1)
+            self.policy_head = nn.Conv2d(16, 1, 1)
+            self.value_head = nn.Linear(16 * 8 * 8, 1)
+
+        def forward(self, x):
+            h = F.relu(self.conv(x))
+            p = self.policy_head(h).view(-1)         # flatten to (64,)
+            v = torch.tensor([0.0], device=x.device) # always 0
+            return F.log_softmax(p, dim=0), v
+
+    model = TinyOthelloNet().to(device)
+    model.eval()
+
+    dummy_input = torch.zeros(1, 2, 8, 8, device=device)
+    output_path = f"{prefix}_othello_net_epoch_000.onnx"
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        output_path,
+        input_names=["board"],
+        output_names=["policy", "value"],
+        dynamic_axes={
+            "board": {0: "batch"},
+            "policy": {0: "batch"},
+            "value": {0: "batch"},
+        },
+        opset_version=17,
+        dynamo=False
+    )
+
+    print(f"Dummy model exported to {output_path}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True)
+    parser.add_argument("--data", required=False,
+                        help="Path to .bin file, directory of .bin files, or comma-separated list of files")
+    parser.add_argument("--window", type=int, default=3,
+                        help="Number of recent data files to use (sliding window). Only applies when --data is a directory.")
+    parser.add_argument("--data-prefix", type=str, default=None,
+                        help="Only load data files starting with this prefix. Only applies when --data is a directory.")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--res-blocks", type=int, default=10)
     parser.add_argument("--out-prefix", type=str, default="othello_net")
-
+    parser.add_argument("--dummy-model", action="store_true",
+                        help="Export a dummy ONNX model for iteration 0")
+    parser.add_argument(
+        "--init-model",
+        action="store_true",
+        help="Export a randomly initialized model without training"
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to a .pt checkpoint file to resume training from"
+    )
     args = parser.parse_args()
 
-    dataset = OthelloDataset(args.data)
-    model = OthelloNet(num_blocks=args.res_blocks)
+    if args.init_model:
+        export_initial_model(
+            prefix=args.out_prefix,
+            num_blocks=args.res_blocks,
+            device="cpu"
+        )
+    else:
+        if args.data is None:
+            raise ValueError("--data is required for training")
 
-    train(
-        model,
-        dataset,
-        prefix=args.out_prefix,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        device="cuda"
-    )
+        dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
+        model = OthelloNet(num_blocks=args.res_blocks)
+
+        # Load checkpoint if provided
+        if args.checkpoint:
+            print(f"Loading checkpoint from {args.checkpoint}")
+            checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+            model.load_state_dict(checkpoint)
+            print("Checkpoint loaded successfully")
+
+        train(
+            model,
+            dataset,
+            prefix=args.out_prefix,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            lr=args.lr,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+        )

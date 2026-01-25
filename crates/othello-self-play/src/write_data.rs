@@ -63,7 +63,7 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use crate::self_play::Sample;
+use crate::async_self_play::Sample;
 
 /// Writes a collection of self-play samples to a binary file in a fixed,
 /// versioned format.

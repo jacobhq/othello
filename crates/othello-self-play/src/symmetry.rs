@@ -1,5 +1,16 @@
-use crate::self_play::Sample;
+use crate::async_self_play::Sample;
 
+/// Generates all rotational and reflectional symmetries of a training sample.
+///
+/// This function produces the 8 dihedral symmetries of the Othello board:
+/// - 4 rotations (0°, 90°, 180°, 270°),
+/// - followed by a horizontal flip and 4 more rotations.
+///
+/// Both the board state and the policy vector are transformed consistently,
+/// while the value target remains unchanged.
+///
+/// This is used as data augmentation to improve sample efficiency and
+/// enforce symmetry invariance in training.
 pub(crate) fn get_symmetries(sample: Sample) -> Vec<Sample> {
     let mut symmetries = Vec::with_capacity(8);
     let mut current_state = sample.state;
@@ -26,7 +37,11 @@ pub(crate) fn get_symmetries(sample: Sample) -> Vec<Sample> {
     symmetries
 }
 
-// Helpers for board state [[[i32; 8]; 8]; 2]
+/// Rotates a board state 90 degrees clockwise.
+///
+/// The rotation is applied independently to both player planes of the
+/// encoded board representation. The input and output use the same
+/// `[player][row][col]` layout.
 pub(crate) fn rotate_state(s: [[[i32; 8]; 8]; 2]) -> [[[i32; 8]; 8]; 2] {
     let mut new_s = [[[0; 8]; 8]; 2];
     for p in 0..2 {
@@ -39,6 +54,10 @@ pub(crate) fn rotate_state(s: [[[i32; 8]; 8]; 2]) -> [[[i32; 8]; 8]; 2] {
     new_s
 }
 
+/// Flips a board state horizontally (left-right).
+///
+/// The transformation mirrors the board along the vertical axis and is
+/// applied independently to both player planes of the encoded state.
 pub(crate) fn flip_state(s: [[[i32; 8]; 8]; 2]) -> [[[i32; 8]; 8]; 2] {
     let mut new_s = [[[0; 8]; 8]; 2];
     for p in 0..2 {
@@ -51,7 +70,11 @@ pub(crate) fn flip_state(s: [[[i32; 8]; 8]; 2]) -> [[[i32; 8]; 8]; 2] {
     new_s
 }
 
-// Helpers for 1D Policy Vec<f32> (length 64)
+/// Rotates a flattened policy vector 90 degrees clockwise.
+///
+/// The input policy is assumed to be indexed in row-major order
+/// (`r * 8 + c`). The returned vector corresponds to the policy distribution
+/// after applying the same spatial rotation as `rotate_state`.
 pub(crate) fn rotate_policy(p: &[f32]) -> Vec<f32> {
     let mut new_p = vec![0.0; 64];
     for r in 0..8 {
@@ -62,6 +85,11 @@ pub(crate) fn rotate_policy(p: &[f32]) -> Vec<f32> {
     new_p
 }
 
+/// Flips a flattened policy vector horizontally (left-right).
+///
+/// The input policy is assumed to be indexed in row-major order
+/// (`r * 8 + c`). The returned vector corresponds to the policy distribution
+/// after applying the same horizontal reflection as `flip_state`.
 pub(crate) fn flip_policy(p: &[f32]) -> Vec<f32> {
     let mut new_p = vec![0.0; 64];
     for r in 0..8 {

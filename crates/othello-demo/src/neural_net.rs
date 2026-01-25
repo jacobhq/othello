@@ -1,21 +1,20 @@
-use ort::execution_providers::CUDAExecutionProvider;
+use ort::ep::CUDA;
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Tensor;
 use ort::Error;
 use othello::othello_game::{Color, OthelloError, OthelloGame};
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
+use crate::mcts::mcts_search;
 
 /// Standardised way to load the model during self-play iterations
 pub(crate) fn load_model(path: PathBuf) -> Result<Session, Error> {
     let model = Session::builder()?
         .with_intra_threads(1)?
         .with_inter_threads(1)?
-        .with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()])?
+        .with_execution_providers([CUDA::default().build().error_on_failure()])?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
         .commit_from_file(path)?;
-
-    ort::init().with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()]).commit()?;
 
     Ok(model)
 }
@@ -30,26 +29,27 @@ pub(crate) fn nn_eval(
     // perspective:
     //   - Channel 0: current player's stones
     //   - Channel 1: opponent's stones
-    let mut input: Tensor<f32> = Tensor::from_array(ndarray::Array4::<f32>::zeros((1, 2, 8, 8)))?;
+    let mut input_data = vec![0.0f32; 2 * 8 * 8];
 
     // Build the input tensor by iterating over the board, and marking squares in correct channel
     for row in 0..8 {
         for col in 0..8 {
             if let Some(c) = game.get(row, col) {
+                let idx = row * 8 + col;
                 // Map stones to channels relative to the evaluating player
                 match (player, c) {
                     (Color::White, Color::White) | (Color::Black, Color::Black) => {
-                        // Safe to dangerously cast here, because i64 can represent all of 0..8
-                        input[[0, 0, row as i64, col as i64]] = 1.0;
+                        input_data[idx] = 1.0;
                     }
                     (Color::White, Color::Black) | (Color::Black, Color::White) => {
-                        // Safe to dangerously cast here, because i64 can represent all of 0..8
-                        input[[0, 1, row as i64, col as i64]] = 1.0;
+                        input_data[64 + idx] = 1.0;
                     }
                 }
             }
         }
     }
+
+    let input: Tensor<f32> = Tensor::from_array(([1, 2, 8, 8], input_data))?;
 
     // Run neural network inference; expects policy and value outputs
     let outputs = model.run(ort::inputs!(input))?;
@@ -124,7 +124,7 @@ pub(crate) fn neural_net(mut game: OthelloGame, human_color: Color, model: PathB
                 stdout().flush().unwrap();
                 let mut input = String::new();
                 stdin().read_line(&mut input).unwrap();
-                let parts: Vec<&str> = input.trim().split_whitespace().collect();
+                let parts: Vec<&str> = input.split_whitespace().collect();
 
                 // Parse and validate the input
                 if parts.len() != 2 {
@@ -174,6 +174,121 @@ pub(crate) fn neural_net(mut game: OthelloGame, human_color: Color, model: PathB
                     m
                 }
                 Err(_) => {
+                    println!("{} has no legal moves and must pass.", game.current_turn);
+                    game.current_turn = match game.current_turn {
+                        Color::Black => Color::White,
+                        Color::White => Color::Black,
+                    };
+                    continue;
+                }
+            }
+        };
+
+        // Play the move and handle the error
+        match game.play(mv.0, mv.1, game.current_turn) {
+            Ok(()) => {}
+            Err(OthelloError::NoMovesForPlayer) => continue,
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+}
+
+/// Human vs neural network with MCTS game mode (stronger play)
+pub(crate) fn neural_net_mcts(mut game: OthelloGame, human_color: Color, model: PathBuf, sims: u32) {
+    let mut session = load_model(model).unwrap();
+
+    println!("MCTS mode with {} simulations per move", sims);
+
+    // Main game loop
+    loop {
+        if game.game_over() {
+            println!("Game over!");
+            println!("{}", game);
+            let (w, b) = game.score();
+            println!("Final score — ● White: {}, ○ Black: {}", w, b);
+            break;
+        }
+
+        println!("It is {}'s turn.", game.current_turn);
+        println!("{}", game);
+
+        // Human turn
+        let mv = if game.current_turn == human_color {
+            let legal = game.legal_moves(human_color);
+
+            // Handle turn skip
+            if legal.is_empty() {
+                println!("{} has no legal moves and must pass.", human_color);
+                game.current_turn = match human_color {
+                    Color::Black => Color::White,
+                    Color::White => Color::Black,
+                };
+                continue;
+            }
+
+            // Show legal moves
+            print!("Legal moves: ");
+            for (r, c) in &legal {
+                print!("({} {}) ", r, c);
+            }
+            println!();
+
+            // Read move from terminal
+            loop {
+                print!("Enter your move (row col): ");
+                stdout().flush().unwrap();
+                let mut input = String::new();
+                stdin().read_line(&mut input).unwrap();
+                let parts: Vec<&str> = input.trim().split_whitespace().collect();
+
+                // Parse and validate the input
+                if parts.len() != 2 {
+                    println!("Please enter row and column separated by a space.");
+                    continue;
+                }
+
+                let row = match parts[0].parse::<usize>() {
+                    Ok(r) if r < 8 => r,
+                    _ => {
+                        println!("Row must be 0..7");
+                        continue;
+                    }
+                };
+
+                let col = match parts[1].parse::<usize>() {
+                    Ok(c) if c < 8 => c,
+                    _ => {
+                        println!("Column must be 0..7");
+                        continue;
+                    }
+                };
+
+                if legal.contains(&(row, col)) {
+                    break (row, col);
+                } else {
+                    println!("That is not a legal move. Try again.");
+                }
+            }
+        } else {
+            // NN+MCTS's turn
+            let legal = game.legal_moves(game.current_turn);
+
+            // Handle turn skip
+            if legal.is_empty() {
+                println!("{} has no legal moves and must pass.", game.current_turn);
+                game.current_turn = match game.current_turn {
+                    Color::Black => Color::White,
+                    Color::White => Color::Black,
+                };
+                continue;
+            }
+
+            match mcts_search(&mut session, &game, game.current_turn, sims) {
+                Some(m) => {
+                    println!("MCTS plays move: ({}, {})", m.0, m.1);
+                    m
+                }
+                None => {
                     println!("{} has no legal moves and must pass.", game.current_turn);
                     game.current_turn = match game.current_turn {
                         Color::Black => Color::White,
