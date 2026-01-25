@@ -89,40 +89,38 @@ pub fn mcts_search(
 
     // Run simulations
     for _ in 0..num_simulations {
-        let mut path = vec![tree.root()];
+        let mut path = Vec::new();
         let mut sim_state = game.clone();
-        let mut current_player = player;
         let mut node_id = tree.root();
 
         // Selection & expansion
         loop {
+            path.push(node_id);
+
             if sim_state.game_over() {
-                // Terminal: backprop actual result using Game trait
-                let value = sim_state.terminal_value(current_player);
+                // Terminal: value from current player's perspective (backprop flips signs)
+                let value = sim_state.terminal_value(sim_state.current_turn);
                 tree.backprop(&path, value);
                 break;
             }
 
+            let current_player = sim_state.current_turn;
             let moves = sim_state.legal_moves(current_player);
+
             if moves.is_empty() {
                 // Pass - create/find pass child (action 64)
                 let pass_action = 64;
                 let child = tree.get_or_create_child(node_id, pass_action, 1.0);
-                path.push(child);
+                // mcts_play handles turn switching
+                sim_state.mcts_play(Move::Pass, current_player).ok();
                 node_id = child;
-                current_player = current_player.opponent();
-                // Play pass move
-                sim_state.mcts_play(Move::Pass, current_player.opponent()).ok();
                 continue;
             }
 
             if let Some((action, child_id)) = tree.select_child(node_id, c_puct) {
-                path.push(child_id);
-                node_id = child_id;
-
                 let (row, col) = (action / 8, action % 8);
                 sim_state.mcts_play(Move::Move(row, col), current_player).unwrap();
-                current_player = current_player.opponent();
+                node_id = child_id;
             } else {
                 // Leaf node: expand and evaluate
                 let encoded = encode_state(&sim_state, current_player);
