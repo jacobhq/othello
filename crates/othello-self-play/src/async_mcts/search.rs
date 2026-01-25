@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Global counter for eval request ids
 static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
 
+/// A trait was used which will allow this system to work very easily for other game
+/// implementations.
 pub trait Game: Clone + Send + Sync + 'static {
     /// Player to move
     fn current_player(&self) -> Color;
@@ -44,6 +46,7 @@ impl Game for OthelloGame {
         self.game_over()
     }
 
+    /// 'If the game ended now, who would win?'
     fn terminal_value(&self, root_player: Color) -> f32 {
         let (black, white) = self.score();
 
@@ -52,6 +55,10 @@ impl Game for OthelloGame {
             Color::White => white as i32 - black as i32,
         };
 
+        // Convert the score difference into a terminal value from the root player's perspective.
+        //  1.0  -> root player is winning
+        // -1.0  -> root player is losing
+        //  0.0  -> draw (equal score)
         if diff > 0 {
             1.0
         } else if diff < 0 {
@@ -61,6 +68,7 @@ impl Game for OthelloGame {
         }
     }
 
+    /// Flatten the game into a vector
     fn encode(&self, player: Color) -> Vec<f32> {
         let planes = self.encode(player);
 

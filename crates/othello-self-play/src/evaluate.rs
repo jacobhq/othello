@@ -71,7 +71,7 @@ fn play_eval_game(
             init_worker.simulate(&game);
             while init_worker.has_pending() {
                 init_worker.poll_results();
-                std::thread::yield_now();
+                thread::yield_now();
             }
         }
 
@@ -84,7 +84,7 @@ fn play_eval_game(
             }
             while worker.has_pending() {
                 worker.poll_results();
-                std::thread::yield_now();
+                thread::yield_now();
             }
         }
 
@@ -141,7 +141,7 @@ fn start_eval_gpu_worker(
             let batch = gpu.pop_batch(max_batch_size);
 
             if batch.is_empty() {
-                std::thread::yield_now();
+                thread::yield_now();
                 continue;
             }
 
@@ -245,7 +245,7 @@ pub fn evaluate_models(
             }
 
             let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-            if done % 10 == 0 || done == total {
+            if done.is_multiple_of(10) || done == total {
                 info!(
                     "Eval progress: {}/{} games (new: {}, old: {}, draws: {})",
                     done,

@@ -105,9 +105,10 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Create a tracing layer for the progress bar
     let indicatif_layer = IndicatifLayer::new();
-    let args = Args::parse();
 
+    // Set up logging
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ort=warn"));
 
@@ -116,6 +117,9 @@ fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer().with_writer(indicatif_layer.get_stderr_writer()))
         .with(indicatif_layer)
         .init();
+
+    // Parse command line arguments
+    let args = Args::parse();
 
     match args.command {
         Some(Command::Eval {
@@ -194,6 +198,7 @@ fn run_selfplay(
         dirichlet_eps
     );
 
+    // Generate the data
     let samples: Vec<Sample> = generate_self_play_data(
         &prefix,
         games,
@@ -207,6 +212,7 @@ fn run_selfplay(
 
     info!("Generated {} samples", samples.len());
 
+    // File name of binary used to save data
     let filename = out.join(format!(
         "{}{}selfplay_{:05}_{:05}.bin",
         prefix,
@@ -215,6 +221,7 @@ fn run_selfplay(
         offset + games
     ));
 
+    // Now actually write these samples to a file
     write_samples(&filename, &samples);
 
     info!(

@@ -79,7 +79,8 @@ impl Tree {
         id
     }
 
-    /// Get or create a child for a specific action (useful for pass moves)
+    /// Get or create a child for a specific action (useful for pass moves, not used in this crate)
+    #[allow(dead_code)]
     pub fn get_or_create_child(&self, node_id: NodeId, action: usize, prior: f32) -> NodeId {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
@@ -188,7 +189,8 @@ impl Tree {
             inner.visits += 1;
             inner.value_sum += v;
 
-            // value is from current player's perspective
+            // Value is from current player's perspective, and we can alternate because passed moves
+            // are in the tree now!
             v = -v;
         }
     }
@@ -198,6 +200,7 @@ impl Tree {
         let node = self.node(node_id);
         let inner = node.inner.lock().unwrap();
 
+        // Iterate through children, convert to (action, visit) tuple
         inner
             .children
             .iter()
@@ -222,6 +225,8 @@ impl Tree {
         let inner = node.inner.lock().unwrap();
 
         let n_children = inner.children.len();
+
+        // Nothing to do if no children
         if n_children == 0 {
             return;
         }

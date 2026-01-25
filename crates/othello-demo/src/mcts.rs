@@ -46,7 +46,7 @@ fn nn_evaluate(session: &mut Session, state: &[f32]) -> (Vec<(usize, f32)>, f32)
     (sparse_policy, value)
 }
 
-/// Filter policy to legal moves and normalize
+/// Filter policy to legal moves and normalise
 fn filter_and_normalize(policy: Vec<(usize, f32)>, legal_moves: &[(usize, usize)]) -> Vec<(usize, f32)> {
     let legal_set: HashSet<usize> = legal_moves.iter().map(|(r, c)| r * 8 + c).collect();
 

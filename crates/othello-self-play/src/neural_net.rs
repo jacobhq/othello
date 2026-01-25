@@ -125,20 +125,41 @@ pub(crate) fn nn_eval(
     Ok((move_probs, value))
 }
 
-/// Batched neural network evaluation for multiple Othello positions
+/// Performs batched neural network inference for multiple Othello positions.
 ///
-/// `games` - slice of game states to evaluate
-/// `players` - slice of corresponding players
-/// Returns a Vec of (policy vector, value) tuples
+/// The input states are expected to be flattened vectors of length 128
+/// (2 × 8 × 8), where the first 64 elements correspond to the current
+/// player's stones and the next 64 correspond to the opponent.
+///
+/// The function constructs a `[batch, 2, 8, 8]` tensor, runs a forward pass
+/// through the ONNX model, and returns for each position:
+/// - a policy distribution over all 64 board locations, and
+/// - a scalar value estimate of the position.
+///
+/// The policy head output is assumed to be in log-probability space and is
+/// exponentiated before being returned.
+///
+/// # Parameters
+/// - `model`: Mutable reference to an ONNX Runtime session.
+/// - `states`: Flattened board states to evaluate.
+///
+/// # Returns
+/// A vector of `(policy, value)` tuples, one per input state, where the
+/// policy is indexed by `(row, column)`.
 pub fn nn_eval_batch(
     model: &mut Session,
     states: &[Vec<f32>], // flattened state vectors
 ) -> Result<Vec<(Vec<PolicyElement>, f32)>, Error> {
     let batch_size = states.len();
 
+    // Allocate input tensor with shape [batch_size, channels, rows, cols]
+    // Channels correspond to player planes: [current_player, opponent]
     let mut input_tensor: Tensor<f32> =
         Tensor::from_array(ndarray::Array4::<f32>::zeros((batch_size, 2, 8, 8)))?;
 
+    // Unpack each flattened state vector into the 4D input tensor.
+    // Layout: state[0..64]   -> channel 0 (current player)
+    //         state[64..128] -> channel 1 (opponent)
     for (i, state) in states.iter().enumerate() {
         assert_eq!(state.len(), 128, "state must be 2*8*8 flattened");
 
@@ -152,22 +173,29 @@ pub fn nn_eval_batch(
         }
     }
 
+    // Run the neural network forward pass.
+    // Expected outputs:
+    // - output[0]: policy logits with shape [batch_size, 64]
+    // - output[1]: value predictions with shape [batch_size, 1]
     let outputs = model.run(ort::inputs!(input_tensor))?;
 
     let policy_tensor_dyn = outputs[0].try_extract_array::<f32>()?;
     let value_tensor_dyn = outputs[1].try_extract_array::<f32>()?;
 
+    // Reshape dynamic output tensors into fixed shapes for easier indexing
     let policy_tensor = policy_tensor_dyn.to_shape((batch_size, 64)).unwrap();
     let value_tensor = value_tensor_dyn.to_shape((batch_size, 1)).unwrap();
 
     let mut results = Vec::with_capacity(batch_size);
     for i in 0..batch_size {
+        // Flatten policy and convert the log probs into actual probabilities
         let policy_flat: Vec<f32> = policy_tensor
             .row(i)
             .iter()
             .map(|&logp| logp.exp())
             .collect();
-        
+
+        // Map flat policy indices back to (row, column) board coordinates
         let move_probs: Vec<PolicyElement> = policy_flat
             .into_iter()
             .enumerate()
@@ -175,6 +203,8 @@ pub fn nn_eval_batch(
             .collect();
 
         let value = value_tensor[[i, 0]];
+
+        // Pair the policy distribution with the scalar value prediction
         results.push((move_probs, value));
     }
 

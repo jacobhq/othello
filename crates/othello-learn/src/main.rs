@@ -2,23 +2,32 @@ use clap::Parser;
 use std::process::Command;
 
 /// CLI tool orchestrating Rust self-play and Python training loop
+/// TODO (later): Args should have either `model` or `self_play` prefix to indicate where they are used.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Name of the training run, used in saved models and data organisation.
     #[arg(short, long)]
     prefix: String,
+    /// Number of iterations to run training for
     #[arg(short, long)]
     iterations: u32,
+    /// Number of self-play games per iteration
     #[arg(long)]
     self_play_games: u32,
+    /// Number of MCTS simulations per self-play game
     #[arg(long)]
     self_play_sims: Option<u32>,
+    /// Offset to store the training data, useful when resuming a training run
     #[arg(long)]
     self_play_offset: Option<u32>,
+    /// Number of epochs to train the model for per iteration
     #[arg(long)]
     model_epochs: Option<u32>,
+    /// Model batch size used in training
     #[arg(long)]
     model_batch_size: Option<u32>,
+    /// Number of conv blocks to include in the model
     #[arg(long)]
     model_res_blocks: Option<u32>,
     /// Initial learning rate (default: 2e-3). Used with --lr-schedule for cosine annealing.
@@ -30,14 +39,19 @@ struct Args {
     /// Learning rate schedule: 'cosine' (default) or 'constant'
     #[arg(long, default_value = "cosine")]
     lr_schedule: String,
+    /// Offset to store the model at, useful when resuming a training run
     #[arg(long)]
     model_offset: Option<u32>,
+    /// Number of past datasets to use per training iteration (size of sliding window)
     #[arg(long, default_value_t = 3)]
     window: u32,
+    /// Number of games to play when evaluating the model against random and against the previous iteration
     #[arg(long, default_value_t = 50)]
     eval_games: u32,
+    /// Number of simulations to use per move during eval
     #[arg(long, default_value_t = 100)]
     eval_sims: u32,
+    /// Skip the eval to reduce training time, good if you are confident in params and just need to train
     #[arg(long, default_value_t = false)]
     skip_eval: bool,
     /// Disable reduced Dirichlet noise for early iterations (always use eps=0.25)
@@ -65,6 +79,7 @@ fn main() {
 
     let args = Args::parse();
 
+    // Calculate offsets
     let sp_offset0 = args.self_play_offset.unwrap_or(0);
     let model_offset0 = args.model_offset.unwrap_or(0);
 
@@ -106,6 +121,7 @@ fn main() {
 
             init_cmd.arg("--init-model");
 
+            // Were we able to generate the first model?
             assert!(
                 init_cmd
                     .status()
@@ -161,6 +177,7 @@ fn main() {
         // Python training with sliding window
         println!("\nTraining on last {} data files", args.window);
 
+        // Location to store the model
         let model_out_prefix = format!(
             "../../packages/othello-training/models/{}_{}",
             args.prefix,
@@ -180,7 +197,10 @@ fn main() {
             .arg(&model_out_prefix);
 
         // Load checkpoint from previous iteration (if not the first iteration)
-        // Skip if --skip-initial-checkpoint is set and this is the first iteration of this run
+        //
+        // Skip if --skip-initial-checkpoint is set and this is the first iteration of this run. This
+        // was mainly added because I was had done this code change during a training run and needed
+        // it to continue.
         let skip_checkpoint = args.skip_initial_checkpoint && i == 0;
         if model_idx > 0 && !skip_checkpoint {
             let checkpoint_path = format!(
@@ -213,6 +233,7 @@ fn main() {
         }
 
         assert!(train.status().expect("training failed").success());
+
         // Evaluation matches
         if !args.skip_eval {
             let new_model = format!(
@@ -295,6 +316,7 @@ fn main() {
     println!("=== Training Complete ===");
     println!("\nConfig: {:?}", args);
 
+    // Handle emptiness in cas eval was skipped
     if !eval_results.is_empty() {
         println!("\n--- Evaluation Summary ---");
         for result in &eval_results {

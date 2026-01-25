@@ -1,4 +1,4 @@
-use ort::execution_providers::CUDAExecutionProvider;
+use ort::ep::CUDA;
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Tensor;
 use ort::Error;
@@ -12,7 +12,7 @@ pub(crate) fn load_model(path: PathBuf) -> Result<Session, Error> {
     let model = Session::builder()?
         .with_intra_threads(1)?
         .with_inter_threads(1)?
-        .with_execution_providers([CUDAExecutionProvider::default().build().error_on_failure()])?
+        .with_execution_providers([CUDA::default().build().error_on_failure()])?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
         .commit_from_file(path)?;
 
@@ -124,7 +124,7 @@ pub(crate) fn neural_net(mut game: OthelloGame, human_color: Color, model: PathB
                 stdout().flush().unwrap();
                 let mut input = String::new();
                 stdin().read_line(&mut input).unwrap();
-                let parts: Vec<&str> = input.trim().split_whitespace().collect();
+                let parts: Vec<&str> = input.split_whitespace().collect();
 
                 // Parse and validate the input
                 if parts.len() != 2 {
