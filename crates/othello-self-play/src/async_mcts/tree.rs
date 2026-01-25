@@ -10,6 +10,7 @@ pub struct Node {
     pub(crate) inner: Mutex<NodeInner>,
 }
 
+/// Content of the MCTS node, should be stored behind a mutex to be thread safe
 pub struct NodeInner {
     /// Prior probability from the policy network
     prior: f32,
@@ -28,6 +29,7 @@ pub struct NodeInner {
 }
 
 impl Node {
+    /// Creates a new node with a given prior
     fn new(prior: f32) -> Self {
         Self {
             inner: Mutex::new(NodeInner {
@@ -113,15 +115,20 @@ impl Tree {
             return None;
         }
 
+        // Get parent visits, max with one to avoid a ln(0), which is undefined
         let parent_visits = inner.visits.max(1) as f32;
 
+        // Current best score has to be really low, and there is no best child yet
         let mut best_score = f32::NEG_INFINITY;
         let mut best = None;
 
+        // Iterate through the children
         for (&action, &child_id) in &inner.children {
+            // Get the child
             let child = self.node(child_id);
             let child_inner = child.inner.lock().unwrap();
 
+            // Calculate values from formula
             let q = if child_inner.visits == 0 {
                 0.0
             } else {
@@ -133,8 +140,10 @@ impl Tree {
                 * child_inner.prior
                 * (parent_visits.sqrt() / (1.0 + child_inner.visits as f32));
 
+            // This is what we want to argmax
             let score = q + u;
 
+            // If this is greater than the best score, it must be a better child
             if score > best_score {
                 best_score = score;
                 best = Some((action, child_id));
