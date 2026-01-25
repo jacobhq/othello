@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.54", features = ["derive"] }
 othello = { path = "../othello" }
+othello-self-play = { path = "../othello-self-play" }
 serde = { version = "1.0.228", features = ["derive"] }
-ort = { version = "=2.0.0-rc.10", features = ["cuda", "ndarray"] }
+ort = { version = "2.0.0-rc.11", features = ["cuda", "ndarray"] }
 ndarray = "0.16.1"

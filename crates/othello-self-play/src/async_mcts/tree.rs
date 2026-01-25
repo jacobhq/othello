@@ -79,6 +79,13 @@ impl Tree {
         id
     }
 
+    /// Get or create a child for a specific action (useful for pass moves)
+    pub fn get_or_create_child(&self, node_id: NodeId, action: usize, prior: f32) -> NodeId {
+        let node = self.node(node_id);
+        let mut inner = node.inner.lock().unwrap();
+        *inner.children.entry(action).or_insert_with(|| self.add_child(prior))
+    }
+
     /// Expand a node with NN policy output
     ///
     /// `policy` is a sparse list of (action, probability)
