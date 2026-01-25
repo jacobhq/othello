@@ -21,8 +21,15 @@ struct Args {
     model_batch_size: Option<u32>,
     #[arg(long)]
     model_res_blocks: Option<u32>,
-    #[arg(long)]
-    model_lr: Option<f32>,
+    /// Initial learning rate (default: 2e-3). Used with --lr-schedule for cosine annealing.
+    #[arg(long, default_value_t = 2e-3)]
+    lr_start: f32,
+    /// Final learning rate (default: 1e-5). Used with --lr-schedule for cosine annealing.
+    #[arg(long, default_value_t = 1e-5)]
+    lr_end: f32,
+    /// Learning rate schedule: 'cosine' (default) or 'constant'
+    #[arg(long, default_value = "cosine")]
+    lr_schedule: String,
     #[arg(long)]
     model_offset: Option<u32>,
     #[arg(long, default_value_t = 3)]
@@ -39,6 +46,15 @@ struct Args {
     /// Skip loading checkpoint for the first iteration when resuming (start fresh but save checkpoints for subsequent iterations)
     #[arg(long, default_value_t = false)]
     skip_initial_checkpoint: bool,
+}
+
+/// Compute learning rate for a given iteration using cosine annealing
+fn cosine_lr(iteration: u32, total_iterations: u32, lr_start: f32, lr_end: f32) -> f32 {
+    // Cosine annealing: lr = lr_end + 0.5 * (lr_start - lr_end) * (1 + cos(pi * t / T))
+    let t = iteration as f32;
+    let total = total_iterations as f32;
+    let cosine_factor = (std::f32::consts::PI * t / total).cos();
+    lr_end + 0.5 * (lr_start - lr_end) * (1.0 + cosine_factor)
 }
 
 fn main() {
@@ -180,9 +196,18 @@ fn main() {
         if let Some(b) = args.model_batch_size {
             train.arg("--batch-size").arg(b.to_string());
         }
-        if let Some(lr) = args.model_lr {
-            train.arg("--lr").arg(lr.to_string());
-        }
+
+        // Compute learning rate based on schedule
+        let lr = if args.lr_schedule == "constant" {
+            args.lr_start
+        } else {
+            // Cosine annealing over total iterations (accounting for resume offset)
+            let total_iterations = args.iterations + model_offset0;
+            cosine_lr(actual_iteration, total_iterations, args.lr_start, args.lr_end)
+        };
+        println!("Learning rate for iteration {}: {:.6}", actual_iteration, lr);
+        train.arg("--lr").arg(lr.to_string());
+
         if let Some(rb) = args.model_res_blocks {
             train.arg("--res-blocks").arg(rb.to_string());
         }
