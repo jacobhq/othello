@@ -160,6 +160,15 @@ fn main() {
             .arg("--out-prefix")
             .arg(&model_out_prefix);
 
+        // Load checkpoint from previous iteration (if not the first iteration)
+        if model_idx > 0 {
+            let checkpoint_path = format!(
+                "../../packages/othello-training/models/{}_{}_checkpoint.pt",
+                &args.prefix, model_idx
+            );
+            train.arg("--checkpoint").arg(&checkpoint_path);
+        }
+
         if let Some(e) = args.model_epochs {
             train.arg("--epochs").arg(e.to_string());
         }

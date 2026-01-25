@@ -431,6 +431,11 @@ def train(
 
         export_onnx(model, epoch + 1, device, prefix)
 
+    # Save PyTorch checkpoint for resuming training
+    checkpoint_file = f"{prefix}_checkpoint.pt"
+    torch.save(model.state_dict(), checkpoint_file)
+    print(f"PyTorch checkpoint saved to {checkpoint_file}")
+
     # Save training statistics to JSON file
     stats_file = f"{prefix}_training_stats.json"
     with open(stats_file, "w") as f:
@@ -509,6 +514,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Export a randomly initialized model without training"
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to a .pt checkpoint file to resume training from"
+    )
     args = parser.parse_args()
 
     if args.init_model:
@@ -523,6 +534,13 @@ if __name__ == "__main__":
 
         dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
         model = OthelloNet(num_blocks=args.res_blocks)
+
+        # Load checkpoint if provided
+        if args.checkpoint:
+            print(f"Loading checkpoint from {args.checkpoint}")
+            checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+            model.load_state_dict(checkpoint)
+            print("Checkpoint loaded successfully")
 
         train(
             model,
