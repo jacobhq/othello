@@ -36,6 +36,9 @@ struct Args {
     /// Disable reduced Dirichlet noise for early iterations (always use eps=0.25)
     #[arg(long, default_value_t = false)]
     no_early_noise_reduction: bool,
+    /// Skip loading checkpoint for the first iteration when resuming (start fresh but save checkpoints for subsequent iterations)
+    #[arg(long, default_value_t = false)]
+    skip_initial_checkpoint: bool,
 }
 
 fn main() {
@@ -161,7 +164,9 @@ fn main() {
             .arg(&model_out_prefix);
 
         // Load checkpoint from previous iteration (if not the first iteration)
-        if model_idx > 0 {
+        // Skip if --skip-initial-checkpoint is set and this is the first iteration of this run
+        let skip_checkpoint = args.skip_initial_checkpoint && i == 0;
+        if model_idx > 0 && !skip_checkpoint {
             let checkpoint_path = format!(
                 "../../packages/othello-training/models/{}_{}_checkpoint.pt",
                 &args.prefix, model_idx
