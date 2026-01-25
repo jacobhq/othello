@@ -179,6 +179,7 @@ fn start_eval_gpu_worker(
 ///
 /// Plays `num_games` games, alternating which model plays black.
 /// Uses fewer simulations than training for speed.
+/// Games are played in parallel for faster evaluation.
 pub fn evaluate_models(
     new_model: PathBuf,
     old_model: PathBuf,
@@ -201,43 +202,81 @@ pub fn evaluate_models(
     let _new_gpu = start_eval_gpu_worker(new_queue.gpu_handle(), new_model, 64);
     let _old_gpu = start_eval_gpu_worker(old_queue.gpu_handle(), old_model, 64);
 
-    // Play games sequentially (simpler than parallel for eval)
-    let mut new_wins = 0u32;
-    let mut old_wins = 0u32;
-    let mut draws = 0u32;
+    // Determine parallelism - use available CPU cores
+    let num_parallel = num_cpus::get_physical();
+    info!("Running {} parallel evaluation games", num_parallel);
+
+    // Use atomic counters for thread-safe updates
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    let new_wins = Arc::new(AtomicU32::new(0));
+    let old_wins = Arc::new(AtomicU32::new(0));
+    let draws = Arc::new(AtomicU32::new(0));
+    let completed = Arc::new(AtomicU32::new(0));
+
+    // Spawn game threads
+    let mut handles = Vec::new();
 
     for game_idx in 0..num_games {
+        let new_queue = new_queue.clone();
+        let old_queue = old_queue.clone();
+        let new_wins = Arc::clone(&new_wins);
+        let old_wins = Arc::clone(&old_wins);
+        let draws = Arc::clone(&draws);
+        let completed = Arc::clone(&completed);
+        let total = num_games;
+
         let new_plays_black = game_idx % 2 == 0;
 
-        let result = play_eval_game(
-            new_queue.clone(),
-            old_queue.clone(),
-            sims_per_move,
-            new_plays_black,
-        )?;
-
-        match result {
-            1 => new_wins += 1,
-            -1 => old_wins += 1,
-            _ => draws += 1,
-        }
-
-        if (game_idx + 1) % 10 == 0 || game_idx + 1 == num_games {
-            info!(
-                "Eval progress: {}/{} games (new: {}, old: {}, draws: {})",
-                game_idx + 1,
-                num_games,
-                new_wins,
-                old_wins,
-                draws
+        let handle = thread::spawn(move || {
+            let result = play_eval_game(
+                new_queue,
+                old_queue,
+                sims_per_move,
+                new_plays_black,
             );
+
+            match result {
+                Ok(1) => { new_wins.fetch_add(1, Ordering::Relaxed); }
+                Ok(-1) => { old_wins.fetch_add(1, Ordering::Relaxed); }
+                Ok(_) => { draws.fetch_add(1, Ordering::Relaxed); }
+                Err(e) => { debug!("Eval game error: {:?}", e); }
+            }
+
+            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            if done % 10 == 0 || done == total {
+                info!(
+                    "Eval progress: {}/{} games (new: {}, old: {}, draws: {})",
+                    done,
+                    total,
+                    new_wins.load(Ordering::Relaxed),
+                    old_wins.load(Ordering::Relaxed),
+                    draws.load(Ordering::Relaxed)
+                );
+            }
+        });
+
+        handles.push(handle);
+
+        // Limit parallelism - wait if we've spawned enough threads
+        if handles.len() >= num_parallel {
+            // Wait for one to complete before spawning more
+            if let Some(h) = handles.pop() {
+                let _ = h.join();
+            }
         }
     }
 
+    // Wait for all remaining games
+    for handle in handles {
+        let _ = handle.join();
+    }
+
     let result = MatchResult {
-        new_wins,
-        old_wins,
-        draws,
+        new_wins: new_wins.load(Ordering::Relaxed),
+        old_wins: old_wins.load(Ordering::Relaxed),
+        draws: draws.load(Ordering::Relaxed),
         total_games: num_games,
     };
 
