@@ -132,6 +132,12 @@ impl<G: Game> SearchWorker<G> {
                 // Value must be from the leaf's current player perspective
                 // because backprop flips signs going up to the root
                 let value = state.terminal_value(state.current_player());
+
+                // Revert virtual loss from all traversed nodes (skip root)
+                for &node in path.iter().skip(1) {
+                    self.tree.revert_virtual_loss(node, self.virtual_loss);
+                }
+
                 self.tree.backprop(&path, value);
                 return;
             }

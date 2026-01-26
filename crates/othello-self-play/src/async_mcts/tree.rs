@@ -165,8 +165,8 @@ impl Tree {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
         inner.visits += 1;
-        // Add to value_sum: after Q negation, this makes node less attractive
-        inner.value_sum += loss;
+        // Subtract from value_sum to decrease Q and make node less attractive
+        inner.value_sum -= loss;
     }
 
     /// Revert virtual loss
@@ -174,7 +174,8 @@ impl Tree {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
         inner.visits -= 1;
-        inner.value_sum -= loss;
+        // Add back to restore the original Q value
+        inner.value_sum += loss;
     }
 
     /// Backpropagate evaluation result
