@@ -49,7 +49,7 @@ struct Args {
     #[arg(long, default_value_t = 50)]
     eval_games: u32,
     /// Number of simulations to use per move during eval
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 800)]
     eval_sims: u32,
     /// Skip the eval to reduce training time, good if you are confident in params and just need to train
     #[arg(long, default_value_t = false)]
