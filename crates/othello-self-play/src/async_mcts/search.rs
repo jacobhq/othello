@@ -3,6 +3,7 @@ use crate::eval_queue::{EvalRequest, EvalResult, SearchHandle};
 use othello::othello_game::{Color, Move, OthelloError, OthelloGame};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tracing::warn;
 
 /// Global counter for eval request ids
 static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -48,7 +49,8 @@ impl Game for OthelloGame {
 
     /// 'If the game ended now, who would win?'
     fn terminal_value(&self, root_player: Color) -> f32 {
-        let (black, white) = self.score();
+        // Note: score() returns (white_count, black_count)
+        let (white, black) = self.score();
 
         let diff = match root_player {
             Color::Black => black as i32 - white as i32,
@@ -215,7 +217,7 @@ impl<G: Game> SearchWorker<G> {
             self.tree.revert_virtual_loss(node, self.virtual_loss);
         }
 
-        // Filter policy to legal moves only
+        // Filter policy to legal moves and normalize
         let legal_moves = state.legal_moves();
         let legal_actions: std::collections::HashSet<usize> = legal_moves
             .iter()
@@ -228,8 +230,25 @@ impl<G: Game> SearchWorker<G> {
             .filter(|(action, _)| legal_actions.contains(action))
             .collect();
 
-        // Expand leaf with filtered policy
-        self.tree.expand(leaf, &filtered_policy);
+        // Normalise the filtered policy so priors sum to 1.0
+        let sum: f32 = filtered_policy.iter().map(|(_, p)| p).sum();
+        let normalised_policy: Vec<(usize, f32)> = if sum > 0.0 {
+            filtered_policy
+                .into_iter()
+                .map(|(a, p)| (a, p / sum))
+                .collect()
+        } else {
+            // Fallback to uniform if all zeros
+            warn!("Policy was all zeros, fell back to uniform");
+            let n = legal_moves.len() as f32;
+            legal_moves
+                .iter()
+                .map(|(r, c)| (r * 8 + c, 1.0 / n))
+                .collect()
+        };
+
+        // Expand leaf with normalised policy
+        self.tree.expand(leaf, &normalised_policy);
 
         // Backprop real value
         self.tree.backprop(&path, result.value);

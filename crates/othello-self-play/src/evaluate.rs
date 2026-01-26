@@ -112,7 +112,8 @@ fn play_eval_game(
     }
 
     // Determine winner
-    let (black_score, white_score) = game.score();
+    // Note: score() returns (white_count, black_count)
+    let (white_score, black_score) = game.score();
     let black_wins = black_score > white_score;
     let white_wins = white_score > black_score;
 
@@ -358,7 +359,8 @@ fn play_vs_random_game(
     }
 
     // Determine winner
-    let (black_score, white_score) = game.score();
+    // Note: score() returns (white_count, black_count)
+    let (white_score, black_score) = game.score();
     let black_wins = black_score > white_score;
     let white_wins = white_score > black_score;
 

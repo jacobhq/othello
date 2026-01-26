@@ -197,8 +197,10 @@ fn play_one_game(
     }
 
     // Backfill values
-    let (b, w) = game.score();
-    let outcome = match b.cmp(&w) {
+    // Note: score() returns (white_count, black_count)
+    let (white_score, black_score) = game.score();
+    // outcome is from Black's perspective: +1 if Black wins, -1 if White wins
+    let outcome = match black_score.cmp(&white_score) {
         std::cmp::Ordering::Greater => 1.0,
         std::cmp::Ordering::Less => -1.0,
         _ => 0.0,
