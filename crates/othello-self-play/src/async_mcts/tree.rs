@@ -140,8 +140,7 @@ impl Tree {
             let q = if child_inner.visits == 0 {
                 0.0
             } else {
-                // Negate: child's value is from opponent's perspective
-                -child_inner.value_sum / child_inner.visits as f32
+                child_inner.value_sum / child_inner.visits as f32
             };
 
             let u = c_puct
