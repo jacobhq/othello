@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="3.14 WSL (Ubuntu-24.04): (/home/jacob/code/othello/packages/othello-training/.venv/bin/python3)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="3.14 WSL (Ubuntu-24.04): (/home/jacob/code/othello/packages/othello-training-stats/.venv/bin/python)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="uv (othello-training-stats)" project-jdk-type="Python SDK" />
 </project>
