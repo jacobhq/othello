@@ -11,24 +11,17 @@ use crate::eval_queue::{EvalQueue, GpuHandle};
 use crate::neural_net::{load_model, nn_eval_batch};
 use anyhow::Result;
 use othello::othello_game::{Color, Move, OthelloGame};
+use serde::Serialize;
 use tracing::{debug, info};
 
 /// Result of an evaluation match
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MatchResult {
     pub new_wins: u32,
     pub old_wins: u32,
     pub draws: u32,
     pub total_games: u32,
-}
-
-impl MatchResult {
-    pub fn win_rate(&self) -> f64 {
-        if self.total_games == 0 {
-            return 0.5;
-        }
-        (self.new_wins as f64 + 0.5 * self.draws as f64) / self.total_games as f64
-    }
+    pub win_rate: f64,
 }
 
 impl std::fmt::Display for MatchResult {
@@ -39,7 +32,7 @@ impl std::fmt::Display for MatchResult {
             self.new_wins,
             self.old_wins,
             self.draws,
-            self.win_rate() * 100.0
+            self.win_rate * 100.0
         )
     }
 }
@@ -273,11 +266,20 @@ pub fn evaluate_models(
         let _ = handle.join();
     }
 
+    let new_w = new_wins.load(Ordering::Relaxed);
+    let old_w = old_wins.load(Ordering::Relaxed);
+    let draw_count = draws.load(Ordering::Relaxed);
+    let win_rate = if num_games == 0 {
+        0.5
+    } else {
+        (new_w as f64 + 0.5 * draw_count as f64) / num_games as f64
+    };
     let result = MatchResult {
-        new_wins: new_wins.load(Ordering::Relaxed),
-        old_wins: old_wins.load(Ordering::Relaxed),
-        draws: draws.load(Ordering::Relaxed),
+        new_wins: new_w,
+        old_wins: old_w,
+        draws: draw_count,
         total_games: num_games,
+        win_rate,
     };
 
     info!("Evaluation complete: {}", result);
@@ -453,11 +455,20 @@ pub fn evaluate_vs_random(
         let _ = handle.join();
     }
 
+    let model_w = model_wins.load(Ordering::Relaxed);
+    let random_w = random_wins.load(Ordering::Relaxed);
+    let draw_count = draws.load(Ordering::Relaxed);
+    let win_rate = if num_games == 0 {
+        0.5
+    } else {
+        (model_w as f64 + 0.5 * draw_count as f64) / num_games as f64
+    };
     let result = MatchResult {
-        new_wins: model_wins.load(Ordering::Relaxed),
-        old_wins: random_wins.load(Ordering::Relaxed),
-        draws: draws.load(Ordering::Relaxed),
+        new_wins: model_w,
+        old_wins: random_w,
+        draws: draw_count,
         total_games: num_games,
+        win_rate,
     };
 
     info!("Evaluation vs random complete: {}", result);

@@ -1,4 +1,6 @@
 use clap::Parser;
+use serde::Deserialize;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// CLI tool orchestrating Rust self-play and Python training loop
@@ -60,6 +62,29 @@ struct Args {
     /// Skip loading checkpoint for the first iteration when resuming (start fresh but save checkpoints for subsequent iterations)
     #[arg(long, default_value_t = false)]
     skip_initial_checkpoint: bool,
+
+    /// Enable model gating (only promote models that beat current best)
+    #[arg(long, default_value_t = false)]
+    enable_gating: bool,
+
+    /// Win rate threshold for model promotion (default: 0.55 = 55%)
+    #[arg(long, default_value_t = 0.55)]
+    gating_threshold: f64,
+
+    /// Minimum win rate against random to allow promotion (default: 0.55 = 55%)
+    #[arg(long, default_value_t = 0.55)]
+    min_random_win_rate: f64,
+}
+
+/// Evaluation result from othello-self-play eval command
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct MatchResult {
+    new_wins: u32,
+    old_wins: u32,
+    draws: u32,
+    total_games: u32,
+    win_rate: f64,
 }
 
 /// Compute learning rate for a given iteration using cosine annealing
@@ -86,12 +111,22 @@ fn main() {
     // Data directory for all self-play output
     let data_dir = "../othello-self-play/data";
 
+    // Evaluation results directory
+    let evals_dir = PathBuf::from("evals");
+    if !args.skip_eval {
+        std::fs::create_dir_all(&evals_dir).expect("Failed to create evals directory");
+    }
+
     // Path to the random/initial model (epoch 0) for baseline comparison
     // Always use model 0 as the baseline, even when resuming
-    let baseline_model = format!(
+    let _baseline_model = format!(
         "../../packages/othello-training/models/{}_0_othello_net_epoch_000.onnx",
         &args.prefix
     );
+
+    // Track the "best" model for gating - initially the starting model
+    // When gating is enabled, self-play uses best_model instead of latest
+    let mut best_model_idx = model_offset0;
 
     // Track evaluation results
     let mut eval_results: Vec<String> = Vec::new();
@@ -160,16 +195,25 @@ fn main() {
         }
 
         // Always pass model (dummy for iteration 0, trained otherwise)
+        // When gating is enabled, use the best model instead of the latest
+        let selfplay_model_idx = if args.enable_gating && i > 0 {
+            best_model_idx
+        } else {
+            model_idx
+        };
         let model_in = format!(
             "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
             &args.prefix,
-            model_idx,
-            if model_idx == 0 {
+            selfplay_model_idx,
+            if selfplay_model_idx == 0 {
                 0
             } else {
                 args.model_epochs.unwrap_or(2)
             }
         );
+        if args.enable_gating && i > 0 {
+            println!("Using best model (idx {}) for self-play", best_model_idx);
+        }
         self_play.arg("--model").arg(&model_in);
 
         assert!(self_play.status().expect("self-play failed").success());
@@ -243,16 +287,30 @@ fn main() {
                 args.model_epochs.unwrap_or(2)
             );
 
-            // Eval vs previous iteration (if not first)
+            // Track whether this model passes gating checks
+            let mut passes_vs_prev = true;
+            let mut passes_vs_random = true;
+
+            // Eval vs best model (when gating enabled) or previous iteration
             if i > 0 {
-                let prev_model = format!(
+                let compare_model_idx = if args.enable_gating {
+                    best_model_idx
+                } else {
+                    model_idx
+                };
+                let compare_model = format!(
                     "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
                     &args.prefix,
-                    model_idx,
-                    args.model_epochs.unwrap_or(2)
+                    compare_model_idx,
+                    if compare_model_idx == 0 { 0 } else { args.model_epochs.unwrap_or(2) }
                 );
 
-                println!("\n--- Eval: New model vs Previous iteration ---");
+                let vs_prev_json = evals_dir.join(format!("{}_iter{:03}_vs_prev.json", &args.prefix, model_idx + 1));
+
+                println!("\n--- Eval: New model vs {} (idx {}) ---",
+                    if args.enable_gating { "best model" } else { "previous" },
+                    compare_model_idx);
+
                 let mut eval_cmd =
                     Command::new("../othello-self-play/target/release/othello-self-play");
                 eval_cmd
@@ -261,27 +319,52 @@ fn main() {
                     .arg("--new-model")
                     .arg(&new_model)
                     .arg("--old-model")
-                    .arg(&prev_model)
+                    .arg(&compare_model)
                     .arg("--games")
                     .arg(args.eval_games.to_string())
                     .arg("--sims")
-                    .arg(args.eval_sims.to_string());
+                    .arg(args.eval_sims.to_string())
+                    .arg("--output-json")
+                    .arg(&vs_prev_json);
 
                 let eval_status = eval_cmd.status().expect("eval vs previous failed");
-                let result_str = format!(
-                    "Iter {}: vs prev - {}",
-                    i,
-                    if eval_status.success() {
-                        "NEW WINS (>=55%)"
-                    } else {
-                        "no significant improvement"
-                    }
-                );
+
+                // Parse JSON result
+                let vs_prev_result: Option<MatchResult> = std::fs::read_to_string(&vs_prev_json)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                let (result_str, win_rate_str) = if let Some(ref result) = vs_prev_result {
+                    passes_vs_prev = result.win_rate >= args.gating_threshold;
+                    (
+                        format!(
+                            "Iter {}: vs {} - {} ({:.1}% win rate)",
+                            model_idx + 1,
+                            if args.enable_gating { "best" } else { "prev" },
+                            if passes_vs_prev { "PASS" } else { "FAIL" },
+                            result.win_rate * 100.0
+                        ),
+                        format!("{:.1}%", result.win_rate * 100.0),
+                    )
+                } else {
+                    passes_vs_prev = eval_status.success();
+                    (
+                        format!(
+                            "Iter {}: vs {} - {} (exit code)",
+                            model_idx + 1,
+                            if args.enable_gating { "best" } else { "prev" },
+                            if passes_vs_prev { "PASS" } else { "FAIL" }
+                        ),
+                        "unknown".to_string(),
+                    )
+                };
                 println!("{}", result_str);
                 eval_results.push(result_str);
             }
 
             // Eval vs true random player
+            let vs_random_json = evals_dir.join(format!("{}_iter{:03}_vs_random.json", &args.prefix, model_idx + 1));
+
             println!("\n--- Eval: New model vs True Random ---");
             let mut baseline_cmd =
                 Command::new("../othello-self-play/target/release/othello-self-play");
@@ -293,20 +376,58 @@ fn main() {
                 .arg("--games")
                 .arg(args.eval_games.to_string())
                 .arg("--sims")
-                .arg(args.eval_sims.to_string());
+                .arg(args.eval_sims.to_string())
+                .arg("--output-json")
+                .arg(&vs_random_json);
 
-            let baseline_status = baseline_cmd.status().expect("eval vs baseline failed");
-            let result_str = format!(
-                "Iter {}: vs baseline - {}",
-                i,
-                if baseline_status.success() {
-                    "BEATING RANDOM"
-                } else {
-                    "not beating random yet"
+            let baseline_status = baseline_cmd.status().expect("eval vs random failed");
+
+            // Parse JSON result
+            let vs_random_result: Option<MatchResult> = std::fs::read_to_string(&vs_random_json)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok());
+
+            let result_str = if let Some(ref result) = vs_random_result {
+                // Warn if random win rate is concerning
+                if result.win_rate < 0.75 {
+                    println!("⚠️  WARNING: Low win rate vs random ({:.1}%) - model may be undertrained",
+                        result.win_rate * 100.0);
                 }
-            );
+                passes_vs_random = result.win_rate >= args.min_random_win_rate;
+                format!(
+                    "Iter {}: vs random - {} ({:.1}% win rate)",
+                    model_idx + 1,
+                    if result.win_rate >= 0.75 { "GOOD" }
+                    else if result.win_rate >= args.min_random_win_rate { "WEAK" }
+                    else { "FAIL" },
+                    result.win_rate * 100.0
+                )
+            } else {
+                passes_vs_random = baseline_status.success();
+                format!(
+                    "Iter {}: vs random - {} (exit code)",
+                    model_idx + 1,
+                    if passes_vs_random { "PASS" } else { "FAIL" }
+                )
+            };
             println!("{}", result_str);
             eval_results.push(result_str);
+
+            // Model gating decision
+            if args.enable_gating && i > 0 {
+                if passes_vs_prev && passes_vs_random {
+                    println!("✅ Model PROMOTED: new best model is idx {}", model_idx + 1);
+                    best_model_idx = model_idx + 1;
+                } else {
+                    println!("❌ Model NOT promoted: keeping best model idx {}", best_model_idx);
+                    if !passes_vs_prev {
+                        println!("   - Failed: did not beat best model by {:.0}%", args.gating_threshold * 100.0);
+                    }
+                    if !passes_vs_random {
+                        println!("   - Failed: did not beat random by {:.0}%", args.min_random_win_rate * 100.0);
+                    }
+                }
+            }
         }
     }
 
