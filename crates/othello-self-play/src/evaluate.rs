@@ -114,19 +114,17 @@ fn play_eval_game(
     // Determine winner
     // Note: score() returns (white_count, black_count)
     let (white_score, black_score) = game.score();
-    let black_wins = black_score > white_score;
-    let white_wins = white_score > black_score;
 
-    // Convert to new model perspective
-    let result = if black_wins {
-        if new_plays_black { 1 } else { -1 }
-    } else if white_wins {
-        if new_plays_black { -1 } else { 1 }
+    if black_score > white_score {
+        // Black wins
+        Ok(if new_plays_black { 1 } else { -1 })
+    } else if white_score > black_score {
+        // White wins
+        Ok(if new_plays_black { -1 } else { 1 })
     } else {
-        0
-    };
-
-    Ok(result)
+        // Draw
+        Ok(0)
+    }
 }
 
 /// Start a GPU worker thread for evaluation
@@ -218,6 +216,7 @@ pub fn evaluate_models(
 
     // Spawn game threads
     let mut handles = Vec::new();
+    let (tx, rx) = std::sync::mpsc::channel();
 
     for game_idx in 0..num_games {
         let new_queue = new_queue.clone();
@@ -226,6 +225,7 @@ pub fn evaluate_models(
         let old_wins = Arc::clone(&old_wins);
         let draws = Arc::clone(&draws);
         let completed = Arc::clone(&completed);
+        let tx = tx.clone();
         let total = num_games;
 
         let new_plays_black = game_idx % 2 == 0;
@@ -246,7 +246,7 @@ pub fn evaluate_models(
             }
 
             let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-            if done.is_multiple_of(10) || done == total {
+            if done % 10 == 0 || done == total {
                 info!(
                     "Eval progress: {}/{} games (new: {}, old: {}, draws: {})",
                     done,
@@ -256,16 +256,15 @@ pub fn evaluate_models(
                     draws.load(Ordering::Relaxed)
                 );
             }
+            let _ = tx.send(());
         });
 
         handles.push(handle);
 
         // Limit parallelism - wait if we've spawned enough threads
-        if handles.len() >= num_parallel {
-            // Wait for one to complete before spawning more
-            if let Some(h) = handles.pop() {
-                let _ = h.join();
-            }
+        while handles.len() >= num_parallel {
+            let _ = rx.recv();
+            handles.retain(|h| !h.is_finished());
         }
     }
 
@@ -361,19 +360,17 @@ fn play_vs_random_game(
     // Determine winner
     // Note: score() returns (white_count, black_count)
     let (white_score, black_score) = game.score();
-    let black_wins = black_score > white_score;
-    let white_wins = white_score > black_score;
 
-    // Convert to model perspective
-    let result = if black_wins {
-        if model_plays_black { 1 } else { -1 }
-    } else if white_wins {
-        if model_plays_black { -1 } else { 1 }
+    if black_score > white_score {
+        // Black wins
+        Ok(if model_plays_black { 1 } else { -1 })
+    } else if white_score > black_score {
+        // White wins
+        Ok(if model_plays_black { -1 } else { 1 })
     } else {
-        0
-    };
-
-    Ok(result)
+        // Draw
+        Ok(0)
+    }
 }
 
 /// Evaluate a model against a true random player.
@@ -407,6 +404,7 @@ pub fn evaluate_vs_random(
     let completed = Arc::new(AtomicU32::new(0));
 
     let mut handles = Vec::new();
+    let (tx, rx) = std::sync::mpsc::channel();
 
     for game_idx in 0..num_games {
         let model_queue = model_queue.clone();
@@ -414,6 +412,7 @@ pub fn evaluate_vs_random(
         let random_wins = Arc::clone(&random_wins);
         let draws = Arc::clone(&draws);
         let completed = Arc::clone(&completed);
+        let tx = tx.clone();
         let total = num_games;
 
         let model_plays_black = game_idx % 2 == 0;
@@ -429,7 +428,7 @@ pub fn evaluate_vs_random(
             }
 
             let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-            if done.is_multiple_of(10) || done == total {
+            if done % 10 == 0 || done == total {
                 info!(
                     "Eval progress: {}/{} games (model: {}, random: {}, draws: {})",
                     done,
@@ -439,14 +438,14 @@ pub fn evaluate_vs_random(
                     draws.load(Ordering::Relaxed)
                 );
             }
+            let _ = tx.send(());
         });
 
         handles.push(handle);
 
         if handles.len() >= num_parallel {
-            if let Some(h) = handles.pop() {
-                let _ = h.join();
-            }
+            let _ = rx.recv();
+            handles.retain(|h| !h.is_finished());
         }
     }
 

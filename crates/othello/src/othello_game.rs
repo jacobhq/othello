@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use crate::bitboard::BitBoard;
 
+/// Move used in MCTS to ensure that the tree can alternate cleanly
 pub enum Move {
     Move(usize, usize),
     Pass
@@ -22,6 +23,7 @@ pub enum Color {
 }
 
 impl Color {
+    /// Returns the opponent of a given player
     pub fn opponent(&self) -> Self {
         match self {
             Self::White => Self::Black,
