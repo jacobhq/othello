@@ -10,3 +10,5 @@ crate-type = ["cdylib"]
 othello = { path = "../othello" }
 wasm-bindgen = "0.2.105"
 serde-wasm-bindgen = "0.6.5"
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["alternative-backend", "fetch-models"] }
+ort-tract = "0.2.0+0.22"
