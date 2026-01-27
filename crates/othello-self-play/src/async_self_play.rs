@@ -74,6 +74,13 @@ fn play_one_game(
 
     while !game.game_over() {
         let current_player = game.current_turn;
+        let legal_moves = game.legal_moves(current_player);
+
+        if legal_moves.is_empty() {
+            game.mcts_play(Move::Pass, current_player).unwrap();
+            move_number += 1;
+            continue;
+        }
 
         // MCTS
         let tree = Tree::new();
@@ -157,14 +164,9 @@ fn play_one_game(
         ));
 
         // Play move
-        let legal_moves = game.legal_moves(current_player);
-
-        if legal_moves.is_empty() {
-            game.mcts_play(Move::Pass, current_player).unwrap();
-        } else {
-            // Temperature annealing: use temp=1.0 for first 10 moves (exploration),
-            // then temp=0.05 for remaining moves (exploitation)
-            let temperature = if move_number < 10 { 1.0f32 } else { 0.05f32 };
+        // Temperature annealing: use temp=1.0 for first 10 moves (exploration),
+        // then temp=0.05 for remaining moves (exploitation)
+        let temperature = if move_number < 10 { 1.0f32 } else { 0.05f32 };
 
             let mut probs: Vec<f32> = legal_moves
                 .iter()
@@ -192,7 +194,6 @@ fn play_one_game(
             let choice = dist.sample(&mut rng());
             let (r, c) = legal_moves[choice];
             game.mcts_play(Move::Move(r, c), current_player).unwrap();
-        }
         move_number += 1;
     }
 

@@ -100,6 +100,7 @@ pub struct SearchWorker<G: Game> {
 
 struct PendingEval<G: Game> {
     path: Vec<NodeId>,
+    signs: Vec<f32>,
     leaf: NodeId,
     state: G,
 }
@@ -122,23 +123,27 @@ impl<G: Game> SearchWorker<G> {
     /// Run one MCTS simulation
     pub fn simulate(&mut self, root_state: &G) {
         let mut path = Vec::new();
+        let mut signs = Vec::new();
         let mut node_id = self.tree.root();
         let mut state = root_state.clone();
 
         loop {
             path.push(node_id);
+            let sign = if state.current_player() == Color::Black { 1.0 } else { -1.0 };
+            signs.push(sign);
 
             if state.is_terminal() {
-                // Value must be from the leaf's current player perspective
-                // because backprop flips signs going up to the root
-                let value = state.terminal_value(state.current_player());
+                // Value must be from Black's perspective for global backprop
+                let value_black = state.terminal_value(Color::Black);
 
                 // Revert virtual loss from all traversed nodes (skip root)
-                for &node in path.iter().skip(1) {
-                    self.tree.revert_virtual_loss(node, self.virtual_loss);
+                for i in 1..path.len() {
+                    let node = path[i];
+                    let sign = signs[i - 1]; // Virtual loss was added using parent's sign
+                    self.tree.revert_virtual_loss(node, self.virtual_loss, sign);
                 }
 
-                self.tree.backprop(&path, value);
+                self.tree.backprop(&path, value_black);
                 return;
             }
 
@@ -156,7 +161,7 @@ impl<G: Game> SearchWorker<G> {
                     })
                 };
 
-                self.tree.add_virtual_loss(child, self.virtual_loss);
+                self.tree.add_virtual_loss(child, self.virtual_loss, sign);
 
                 state.play_move(Move::Pass).unwrap();
                 node_id = child;
@@ -164,8 +169,8 @@ impl<G: Game> SearchWorker<G> {
             }
 
 
-            if let Some((action, child)) = self.tree.select_child(node_id, self.c_puct) {
-                self.tree.add_virtual_loss(child, self.virtual_loss);
+            if let Some((action, child)) = self.tree.select_child(node_id, self.c_puct, sign) {
+                self.tree.add_virtual_loss(child, self.virtual_loss, sign);
 
                 let (row, col) = action_to_rc(action);
                 state.play_move(Move::Move(row, col)).unwrap();
@@ -179,13 +184,11 @@ impl<G: Game> SearchWorker<G> {
         let leaf = node_id;
         let id = NEXT_EVAL_ID.fetch_add(1, Ordering::Relaxed);
 
-        // Encode from leaf's current player perspective for correct backprop
+        // Encode from leaf's current player perspective for NN
         let encoded = state.encode(state.current_player());
 
-        // FIX 1: insert pending first
-        self.pending.insert(id, PendingEval { path, leaf, state });
+        self.pending.insert(id, PendingEval { path, signs, leaf, state });
 
-        // FIX 2: then push request
         self.eval_queue.push_request(EvalRequest {
             id,
             state: encoded,
@@ -215,12 +218,13 @@ impl<G: Game> SearchWorker<G> {
             None => return, // stale / duplicate
         };
 
-        let PendingEval { path, leaf, state } = pending;
+        let PendingEval { path, signs, leaf, state } = pending;
 
         // 🔴 Remove virtual loss from every node where it was added
-        // path[0] is the root → no virtual loss there
-        for &node in path.iter().skip(1) {
-            self.tree.revert_virtual_loss(node, self.virtual_loss);
+        for i in 1..path.len() {
+            let node = path[i];
+            let sign = signs[i - 1];
+            self.tree.revert_virtual_loss(node, self.virtual_loss, sign);
         }
 
         // Filter policy to legal moves and normalize
@@ -256,8 +260,10 @@ impl<G: Game> SearchWorker<G> {
         // Expand leaf with normalised policy
         self.tree.expand(leaf, &normalised_policy);
 
-        // Backprop real value
-        self.tree.backprop(&path, result.value);
+        // Backprop value from Black's perspective
+        let leaf_sign = if state.current_player() == Color::Black { 1.0 } else { -1.0 };
+        let value_black = result.value * leaf_sign;
+        self.tree.backprop(&path, value_black);
     }
 }
 

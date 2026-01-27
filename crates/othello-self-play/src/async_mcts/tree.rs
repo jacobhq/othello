@@ -115,6 +115,7 @@ impl Tree {
         &self,
         node_id: NodeId,
         c_puct: f32,
+        sign: f32,
     ) -> Option<(usize, NodeId)> {
         let node = self.node(node_id);
         let inner = node.inner.lock().unwrap();
@@ -143,12 +144,15 @@ impl Tree {
                 child_inner.value_sum / child_inner.visits as f32
             };
 
+            // Q is always from Black's perspective. If it's White's turn, we want to minimize it.
+            let q_perspective = q * sign;
+
             let u = c_puct
                 * child_inner.prior
                 * (parent_visits.sqrt() / (1.0 + child_inner.visits as f32));
 
             // This is what we want to argmax
-            let score = q + u;
+            let score = q_perspective + u;
 
             // If this is greater than the best score, it must be a better child
             if score > best_score {
@@ -161,37 +165,32 @@ impl Tree {
     }
 
     /// Apply virtual loss during selection
-    pub fn add_virtual_loss(&self, node_id: NodeId, loss: f32) {
+    pub fn add_virtual_loss(&self, node_id: NodeId, loss: f32, sign: f32) {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
         inner.visits += 1;
-        // Subtract from value_sum to decrease Q and make node less attractive
-        inner.value_sum -= loss;
+        // Subtract from value_sum if sign=1 (Black), add if sign=-1 (White)
+        // to decrease the q_perspective and make node less attractive
+        inner.value_sum -= loss * sign;
     }
 
     /// Revert virtual loss
-    pub fn revert_virtual_loss(&self, node_id: NodeId, loss: f32) {
+    pub fn revert_virtual_loss(&self, node_id: NodeId, loss: f32, sign: f32) {
         let node = self.node(node_id);
         let mut inner = node.inner.lock().unwrap();
         inner.visits -= 1;
-        // Add back to restore the original Q value
-        inner.value_sum += loss;
+        // Restore original value_sum
+        inner.value_sum += loss * sign;
     }
 
     /// Backpropagate evaluation result
-    pub fn backprop(&self, path: &[NodeId], value: f32) {
-        let mut v = value;
-
+    pub fn backprop(&self, path: &[NodeId], value_black: f32) {
         for &node_id in path.iter().rev() {
             let node = self.node(node_id);
             let mut inner = node.inner.lock().unwrap();
 
             inner.visits += 1;
-            inner.value_sum += v;
-
-            // Value is from current player's perspective, and we can alternate because passed moves
-            // are in the tree now!
-            v = -v;
+            inner.value_sum += value_black;
         }
     }
 

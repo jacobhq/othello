@@ -96,11 +96,12 @@ pub fn mcts_search(
         // Selection & expansion
         loop {
             path.push(node_id);
+            let sign = if sim_state.current_turn == Color::Black { 1.0 } else { -1.0 };
 
             if sim_state.game_over() {
-                // Terminal: value from current player's perspective (backprop flips signs)
-                let value = sim_state.terminal_value(sim_state.current_turn);
-                tree.backprop(&path, value);
+                // Terminal: value from Black's perspective
+                let value_black = sim_state.terminal_value(Color::Black);
+                tree.backprop(&path, value_black);
                 break;
             }
 
@@ -117,7 +118,7 @@ pub fn mcts_search(
                 continue;
             }
 
-            if let Some((action, child_id)) = tree.select_child(node_id, c_puct) {
+            if let Some((action, child_id)) = tree.select_child(node_id, c_puct, sign) {
                 let (row, col) = (action / 8, action % 8);
                 sim_state.mcts_play(Move::Move(row, col), current_player).unwrap();
                 node_id = child_id;
@@ -129,8 +130,10 @@ pub fn mcts_search(
 
                 tree.expand(node_id, &normalized);
 
-                // Value is from current_player's perspective, backprop handles sign flips
-                tree.backprop(&path, value);
+                // Value is from current_player's perspective, convert to Black's
+                let leaf_sign = if current_player == Color::Black { 1.0 } else { -1.0 };
+                let value_black = value * leaf_sign;
+                tree.backprop(&path, value_black);
                 break;
             }
         }
@@ -139,6 +142,10 @@ pub fn mcts_search(
     // Select most visited action using tree's child_visits method
     let visits = tree.child_visits(tree.root());
     let best = visits.iter().max_by_key(|(_, v)| v)?;
+
+    if best.0 == 64 {
+        return None; // Pass selected by MCTS
+    }
 
     // Print top moves for debugging
     let mut sorted_visits = visits.clone();
