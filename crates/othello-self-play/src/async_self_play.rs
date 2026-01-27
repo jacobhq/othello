@@ -144,13 +144,25 @@ fn play_one_game(
             w.join().unwrap();
         }
 
-        // Policy extraction
+        // Policy extraction with temperature sharpening
+        // Early moves (< 10): use temp=1.0 to preserve exploration signal
+        // Later moves: use argmax (T=0) for clearest learning signal
+        let use_argmax = move_number >= 10;
+        
         let mut policy = vec![0.0f32; 64];
         let visits = tree.child_visits(tree.root());
-        let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
-
-        for (action, count) in visits {
-            policy[action] = count as f32 / total_visits as f32;
+        
+        if use_argmax {
+            // T=0: put all mass on the most-visited action
+            if let Some((best_action, _)) = visits.iter().max_by_key(|(_, v)| *v) {
+                policy[*best_action] = 1.0;
+            }
+        } else {
+            // T=1: use raw visit proportions
+            let total_visits: u32 = visits.iter().map(|(_, v)| *v).sum::<u32>().max(1);
+            for (action, count) in visits {
+                policy[action] = count as f32 / total_visits as f32;
+            }
         }
 
         // Store sample
