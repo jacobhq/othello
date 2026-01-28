@@ -422,16 +422,17 @@ fn main() {
 
             // Model gating decision
             if args.enable_gating {
-                // Special case: first trained model (i=0) always gets promoted
-                // to escape the untrained model's data distribution
+                // Special case: first trained model (i=0) ALWAYS gets promoted
+                // to escape the untrained model's data distribution.
+                // First iteration models are expected to be weak, but we need
+                // to start training on data from a trained model to improve.
                 if is_first_trained {
-                    if passes_vs_random {
-                        println!("✅ First trained model PROMOTED: idx {} (bypassing vs-best check)", model_idx + 1);
-                        best_model_idx = model_idx + 1;
-                    } else {
-                        println!("⚠️  First trained model NOT promoted: failed random check");
-                        println!("   Keeping untrained model, but this may cause bootstrap issues");
+                    println!("✅ First trained model PROMOTED: idx {} (mandatory bootstrap)", model_idx + 1);
+                    if !passes_vs_random {
+                        println!("   ⚠️  Note: Only {:.1}% vs random - expected to improve with more iterations", 
+                            vs_random_result.as_ref().map(|r| r.win_rate * 100.0).unwrap_or(0.0));
                     }
+                    best_model_idx = model_idx + 1;
                 } else if i > 0 {
                     if passes_vs_prev && passes_vs_random {
                         println!("✅ Model PROMOTED: new best model is idx {}", model_idx + 1);
