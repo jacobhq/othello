@@ -292,11 +292,18 @@ fn main() {
             let mut passes_vs_random = true;
 
             // Eval vs best model (when gating enabled) or previous iteration
+            // Special case: iteration 1 (first trained model) should always be promoted
+            // to avoid bootstrap trap of endlessly training on untrained model's data
+            let is_first_trained = i == 0;
+            
             if i > 0 {
-                let compare_model_idx = if args.enable_gating {
+                // When gating: compare against best trained model
+                // But if best_model_idx is 0 (untrained), compare against previous instead
+                // This prevents getting stuck in a loop with the untrained model
+                let compare_model_idx = if args.enable_gating && best_model_idx > 0 {
                     best_model_idx
                 } else {
-                    model_idx
+                    model_idx  // Compare against previous iteration
                 };
                 let compare_model = format!(
                     "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
@@ -308,7 +315,7 @@ fn main() {
                 let vs_prev_json = evals_dir.join(format!("{}_iter{:03}_vs_prev.json", &args.prefix, model_idx + 1));
 
                 println!("\n--- Eval: New model vs {} (idx {}) ---",
-                    if args.enable_gating { "best model" } else { "previous" },
+                    if args.enable_gating && best_model_idx > 0 { "best model" } else { "previous" },
                     compare_model_idx);
 
                 let mut eval_cmd =
@@ -414,17 +421,31 @@ fn main() {
             eval_results.push(result_str);
 
             // Model gating decision
-            if args.enable_gating && i > 0 {
-                if passes_vs_prev && passes_vs_random {
-                    println!("✅ Model PROMOTED: new best model is idx {}", model_idx + 1);
-                    best_model_idx = model_idx + 1;
-                } else {
-                    println!("❌ Model NOT promoted: keeping best model idx {}", best_model_idx);
-                    if !passes_vs_prev {
-                        println!("   - Failed: did not beat best model by {:.0}%", args.gating_threshold * 100.0);
+            if args.enable_gating {
+                // Special case: first trained model (i=0) always gets promoted
+                // to escape the untrained model's data distribution
+                if is_first_trained {
+                    if passes_vs_random {
+                        println!("✅ First trained model PROMOTED: idx {} (bypassing vs-best check)", model_idx + 1);
+                        best_model_idx = model_idx + 1;
+                    } else {
+                        println!("⚠️  First trained model NOT promoted: failed random check");
+                        println!("   Keeping untrained model, but this may cause bootstrap issues");
                     }
-                    if !passes_vs_random {
-                        println!("   - Failed: did not beat random by {:.0}%", args.min_random_win_rate * 100.0);
+                } else if i > 0 {
+                    if passes_vs_prev && passes_vs_random {
+                        println!("✅ Model PROMOTED: new best model is idx {}", model_idx + 1);
+                        best_model_idx = model_idx + 1;
+                    } else {
+                        println!("❌ Model NOT promoted: keeping best model idx {}", best_model_idx);
+                        if !passes_vs_prev {
+                            println!("   - Failed: did not beat {} by {:.0}%", 
+                                if best_model_idx > 0 { "best model" } else { "previous" },
+                                args.gating_threshold * 100.0);
+                        }
+                        if !passes_vs_random {
+                            println!("   - Failed: did not beat random by {:.0}%", args.min_random_win_rate * 100.0);
+                        }
                     }
                 }
             }
