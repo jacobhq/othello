@@ -167,6 +167,7 @@ impl OthelloGame {
     pub fn play_unchecked(&mut self, row: usize, col: usize, player: Color) {
         let move_mask: BitBoard = BitBoard(BitBoard::mask(row, col));
 
+        // Get both ours and our opponent's boards
         let (mut me, mut opp) = match player {
             Color::Black => (self.black, self.white),
             Color::White => (self.white, self.black),
@@ -174,7 +175,9 @@ impl OthelloGame {
 
         let mut flips: BitBoard = BitBoard(0);
 
+        // Scan in each of the 8 directions to find contiguous opponent pieces bracketed by our own
         for (shift, mask) in DIRECTIONS {
+            // Start with the square adjacent to the move in the current direction, applying edge masking to prevent wraparound
             let mut candidate = if shift > 0 {
                 (move_mask & mask) << shift
             } else if shift < 0 {
@@ -185,6 +188,7 @@ impl OthelloGame {
 
             let mut flips_in_dir = BitBoard(0);
 
+            // Walk forward as long as we keep seeing opponent pieces, accumulating potential flips
             while candidate != BitBoard(0) && (candidate & opp) != BitBoard(0) {
                 flips_in_dir |= candidate;
 
@@ -195,11 +199,13 @@ impl OthelloGame {
                 };
             }
 
+            // Only commit flips if the run is terminated by one of our own pieces
             if candidate & me != BitBoard(0) {
                 flips |= flips_in_dir;
             }
         }
 
+        // Apply the move and flip all captured opponent pieces in every valid direction
         me |= move_mask | flips;
         opp &= !flips;
 
@@ -220,14 +226,19 @@ impl OthelloGame {
         if self.current_turn != player {
             return Err(OthelloError::NotYourTurn);
         }
+
+        // If no legal moves skip turn
         if self.legal_moves_mask(self.current_turn) == BitBoard(0) {
             let next = match self.current_turn {
                 Color::Black => Color::White,
                 Color::White => Color::Black,
             };
+
             self.current_turn = next;
             return Err(OthelloError::NoMovesForPlayer);
         }
+
+        // Check if the move is legal
         let move_mask: BitBoard = BitBoard(BitBoard::mask(row, col));
         if self.legal_moves_mask(player) & move_mask == BitBoard(0) {
             self.current_turn = player;
@@ -236,10 +247,12 @@ impl OthelloGame {
 
         self.play_unchecked(row, col, player);
 
+        // Update next turn
         let next_player = match player {
             Color::Black => Color::White,
             Color::White => Color::Black,
         };
+
         if self.legal_moves_mask(next_player) != BitBoard(0) {
             // Opponent has a move: switch turn
             self.current_turn = next_player;
@@ -292,6 +305,7 @@ impl OthelloGame {
             Color::Black => Color::White,
             Color::White => Color::Black,
         };
+
         if self.legal_moves_mask(next_player) != BitBoard(0) {
             // Opponent has a move: switch turn
             self.current_turn = next_player;
