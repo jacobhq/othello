@@ -32,12 +32,32 @@ def load_single_bin_file(path):
     return states, policies, values, n
 
 
+def extract_file_sort_key(filepath):
+    """
+    Extract numeric sort key from a filename like 'prefix_selfplay_60000_64000.bin'.
+    Returns a tuple of (start_num, end_num) for proper numeric sorting.
+    Falls back to (0, 0) if no numbers are found.
+    """
+    import re
+    import os
+    basename = os.path.basename(filepath)
+    # Match patterns like _60000_64000 or _100000_104000 at the end before .bin
+    match = re.search(r'_(\d+)_(\d+)\.bin$', basename)
+    if match:
+        return (int(match.group(1)), int(match.group(2)))
+    # Fallback: try to find any numbers in the filename
+    numbers = re.findall(r'\d+', basename)
+    if numbers:
+        return tuple(int(n) for n in numbers[-2:]) if len(numbers) >= 2 else (int(numbers[-1]), 0)
+    return (0, 0)
+
+
 def find_recent_data_files(data_dir, window_size=3, prefix=None):
     """
     Find the most recent `window_size` iterations worth of .bin files.
 
-    Files are sorted by name (assumes naming like prefix_selfplay_00000_00001.bin)
-    and the last `window_size` files are returned.
+    Files are sorted numerically by the game range in the filename
+    (e.g., prefix_selfplay_60000_64000.bin) and the last `window_size` files are returned.
 
     Args:
         data_dir: Directory containing .bin files
@@ -48,7 +68,7 @@ def find_recent_data_files(data_dir, window_size=3, prefix=None):
     import os
 
     pattern = os.path.join(data_dir, "**/*.bin")
-    all_files = sorted(glob.glob(pattern, recursive=True))
+    all_files = sorted(glob.glob(pattern, recursive=True), key=extract_file_sort_key)
 
     # Filter by prefix if provided
     if prefix:
@@ -92,7 +112,7 @@ class OthelloDataset(Dataset):
                 files = find_recent_data_files(path, window_size, prefix=prefix)
             else:
                 import glob
-                all_files = sorted(glob.glob(os.path.join(path, "**/*.bin"), recursive=True))
+                all_files = sorted(glob.glob(os.path.join(path, "**/*.bin"), recursive=True), key=extract_file_sort_key)
                 if prefix:
                     files = [f for f in all_files if os.path.basename(f).startswith(prefix)]
                 else:
