@@ -6,7 +6,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+import os
 import time
+
+
+def ddp_print(*args, force=False, **kwargs):
+    """
+    Print only on rank 0 by default.
+    Set force=True to print on all ranks.
+    """
+    if force or not dist.is_initialized() or dist.get_rank() == 0:
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        print(f"[rank {rank}]", *args, **kwargs)
 
 
 def load_single_bin_file(path):
@@ -81,11 +94,11 @@ def find_recent_data_files(data_dir, window_size=3, prefix=None):
     # Take the last `window_size` files
     selected = all_files[-window_size:] if len(all_files) > window_size else all_files
 
-    print(f"Found {len(all_files)} total .bin files" +
+    ddp_print(f"Found {len(all_files)} total .bin files" +
           (f" with prefix '{prefix}'" if prefix else "") +
           f", using last {len(selected)}:")
     for f in selected:
-        print(f"  - {os.path.basename(f)}")
+        ddp_print(f"  - {os.path.basename(f)}")
 
     return selected
 
@@ -117,13 +130,13 @@ class OthelloDataset(Dataset):
                     files = [f for f in all_files if os.path.basename(f).startswith(prefix)]
                 else:
                     files = all_files
-                print(f"Loading all {len(files)} .bin files from {path}")
+                ddp_print(f"Loading all {len(files)} .bin files from {path}")
         elif "," in path:
             files = [f.strip() for f in path.split(",")]
-            print(f"Loading {len(files)} specified .bin files")
+            ddp_print(f"Loading {len(files)} specified .bin files")
         else:
             files = [path]
-            print(f"Loading single file: {path}")
+            ddp_print(f"Loading single file: {path}")
 
         if not files:
             raise ValueError(f"No .bin files found at {path}")
@@ -138,7 +151,7 @@ class OthelloDataset(Dataset):
                 file_sample_counts.append(n)
                 total_samples += n
 
-        print(f"Total samples to load: {total_samples:,}")
+        ddp_print(f"Total samples to load: {total_samples:,}")
 
         # Allocate arrays
         self.states = np.zeros((total_samples, 2, 8, 8), dtype=np.float32)
@@ -148,7 +161,7 @@ class OthelloDataset(Dataset):
         # Load all files
         offset = 0
         for file_path, n_samples in zip(files, file_sample_counts):
-            print(f"  Loading {os.path.basename(file_path)} ({n_samples:,} samples)...")
+            ddp_print(f"  Loading {os.path.basename(file_path)} ({n_samples:,} samples)...")
             states, policies, values, _ = load_single_bin_file(file_path)
             self.states[offset:offset + n_samples] = states
             self.policies[offset:offset + n_samples] = policies
@@ -156,7 +169,7 @@ class OthelloDataset(Dataset):
             offset += n_samples
 
         elapsed = time.time() - start_time
-        print(f"Dataset loaded in {elapsed:.1f}s ({total_samples / elapsed:.0f} samples/sec)")
+        ddp_print(f"Dataset loaded in {elapsed:.1f}s ({total_samples / elapsed:.0f} samples/sec)")
 
     def __len__(self):
         return len(self.values)
@@ -331,17 +344,29 @@ def train(
     lr=1e-3,
     device="cuda" if torch.cuda.is_available() else "cpu",
 ):
-    print(f"\nStarting training on {device}")
-    print(f"  Dataset size: {len(dataset):,} samples")
-    print(f"  Batch size: {batch_size}")
-    print(f"  Epochs: {epochs}")
-    print(f"  Learning rate: {lr}")
-    print()
+    ddp_print(f"\nStarting training on {device}")
+    ddp_print(f"  Dataset size: {len(dataset):,} samples")
+    ddp_print(f"  Batch size: {batch_size}")
+    ddp_print(f"  Epochs: {epochs}")
+    ddp_print(f"  Learning rate: {lr}")
+    ddp_print()
 
-    model.to(device)
     model.train()
 
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    if dist.is_initialized():
+        sampler = DistributedSampler(dataset, shuffle=True)
+    else:
+        sampler = None
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        sampler=sampler,
+        shuffle=(sampler is None),
+        num_workers=4,
+        pin_memory=True,
+    )
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
     num_batches = len(loader)
@@ -360,6 +385,9 @@ def train(
     }
 
     for epoch in range(epochs):
+        if sampler is not None:
+            sampler.set_epoch(epoch)
+
         epoch_start = time.time()
         total_loss = 0.0
         total_policy_loss = 0.0
@@ -405,7 +433,7 @@ def train(
             if batch_count % max(1, num_batches // 10) == 0:
                 avg_loss = total_loss / batch_count
                 pct = batch_count / num_batches * 100
-                print(
+                ddp_print(
                     f"  Epoch {epoch + 1}/{epochs} - Batch {batch_count}/{num_batches} ({pct:.0f}%) - Loss: {avg_loss:.4f}"
                 )
 
@@ -414,8 +442,8 @@ def train(
         avg_policy_loss = total_policy_loss / len(loader)
         avg_value_loss = total_value_loss / len(loader)
 
-        print(f"Epoch {epoch + 1}/{epochs} completed in {epoch_time:.1f}s")
-        print(
+        ddp_print(f"Epoch {epoch + 1}/{epochs} completed in {epoch_time:.1f}s")
+        ddp_print(
             f"  Average loss: {avg_loss:.4f} (policy: {avg_policy_loss:.4f}, value: {avg_value_loss:.4f})"
         )
 
@@ -449,18 +477,29 @@ def train(
         }
         training_stats["epochs"].append(epoch_stats)
 
-        export_onnx(model, epoch + 1, device, prefix)
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            export_onnx(
+                model.module if hasattr(model, "module") else model,
+                epoch + 1,
+                device,
+                prefix
+            )
 
     # Save PyTorch checkpoint for resuming training
     checkpoint_file = f"{prefix}_checkpoint.pt"
-    torch.save(model.state_dict(), checkpoint_file)
-    print(f"PyTorch checkpoint saved to {checkpoint_file}")
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        torch.save(
+            model.module.state_dict() if hasattr(model, "module") else model.state_dict(),
+            checkpoint_file
+        )
+    ddp_print(f"PyTorch checkpoint saved to {checkpoint_file}")
 
     # Save training statistics to JSON file
     stats_file = f"{prefix}_training_stats.json"
-    with open(stats_file, "w") as f:
-        json.dump(training_stats, f, indent=2)
-    print(f"Training statistics saved to {stats_file}")
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        with open(stats_file, "w") as f:
+            json.dump(training_stats, f, indent=2)
+    ddp_print(f"Training statistics saved to {stats_file}")
 
     return training_stats
 
@@ -511,7 +550,7 @@ def export_dummy_model(prefix, device="cpu"):
         dynamo=False
     )
 
-    print(f"Dummy model exported to {output_path}")
+    ddp_print(f"Dummy model exported to {output_path}")
 
 
 if __name__ == "__main__":
@@ -552,15 +591,35 @@ if __name__ == "__main__":
         if args.data is None:
             raise ValueError("--data is required for training")
 
+        use_ddp = torch.cuda.device_count() > 1
+
+        if use_ddp:
+            dist.init_process_group(backend="nccl")
+            local_rank = int(os.environ["LOCAL_RANK"])
+            torch.cuda.set_device(local_rank)
+            device = torch.device(f"cuda:{local_rank}")
+        else:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
         dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
-        model = OthelloNet(num_blocks=args.res_blocks)
+
+        model = OthelloNet(num_blocks=args.res_blocks).to(device)
+
+        if use_ddp:
+            model = torch.nn.parallel.DistributedDataParallel(
+                model,
+                device_ids=[local_rank],
+                output_device=local_rank
+            )
+
 
         # Load checkpoint if provided
         if args.checkpoint:
-            print(f"Loading checkpoint from {args.checkpoint}")
+            ddp_print(f"Loading checkpoint from {args.checkpoint}")
             checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
             model.load_state_dict(checkpoint)
-            print("Checkpoint loaded successfully")
+            ddp_print("Checkpoint loaded successfully")
 
         train(
             model,
@@ -569,5 +628,8 @@ if __name__ == "__main__":
             epochs=args.epochs,
             batch_size=args.batch_size,
             lr=args.lr,
-            device="cuda" if torch.cuda.is_available() else "cpu",
+            device=device,
         )
+
+        if dist.is_initialized():
+            dist.destroy_process_group()
