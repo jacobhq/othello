@@ -233,7 +233,6 @@ fn main() {
         train
             .arg("--standalone")                 // single-node
             .arg("--nproc_per_node=2")           // number of GPUs to use
-            .arg(python_path)
             .arg("../../packages/othello-training/main.py")
             .arg("--data")
             .arg(data_dir)

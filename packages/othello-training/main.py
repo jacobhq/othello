@@ -378,7 +378,7 @@ def train(
             "batch_size": batch_size,
             "epochs": epochs,
             "learning_rate": lr,
-            "device": device,
+            "device": str(device),
             "num_batches_per_epoch": num_batches,
         },
         "epochs": [],
