@@ -228,8 +228,12 @@ fn main() {
             model_idx + 1
         );
 
-        let mut train = Command::new(python_path);
+        let mut train = Command::new("../../packages/othello-training/.venv/bin/torchrun");
+
         train
+            .arg("--standalone")                 // single-node
+            .arg("--nproc_per_node=2")           // number of GPUs to use
+            .arg(python_path)
             .arg("../../packages/othello-training/main.py")
             .arg("--data")
             .arg(data_dir)
