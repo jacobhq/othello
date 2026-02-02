@@ -618,7 +618,12 @@ if __name__ == "__main__":
         if args.checkpoint:
             ddp_print(f"Loading checkpoint from {args.checkpoint}")
             checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
-            model.load_state_dict(checkpoint)
+
+            if hasattr(model, "module"):
+                model.module.load_state_dict(checkpoint)
+            else:
+                model.load_state_dict(checkpoint)
+
             ddp_print("Checkpoint loaded successfully")
 
         train(
