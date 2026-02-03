@@ -5,6 +5,7 @@ ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y \
     build-essential \
+    pkg-config \
     curl \
     wget \
     git \
