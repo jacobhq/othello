@@ -68,16 +68,29 @@ fn play_eval_game(
             }
         }
 
-        // Run remaining simulations (no Dirichlet noise for evaluation)
+        // Run remaining simulations with pipelining
+        // Keep up to MAX_IN_FLIGHT simulations queued, adding more as results come back
+        // This keeps GPU fed while tree gets updated from completed simulations
         {
             let mut worker = SearchWorker::new(tree.clone(), search_handle.clone());
-            for _ in 1..sims_per_move {
-                worker.simulate(&game);
+            const MAX_IN_FLIGHT: usize = 16;
+            let remaining_sims = sims_per_move.saturating_sub(1);
+            
+            let mut queued = 0u32;
+            while queued < remaining_sims || worker.has_pending() {
+                // Poll for any completed results first
                 worker.poll_results();
-            }
-            while worker.has_pending() {
-                worker.poll_results();
-                thread::yield_now();
+                
+                // Queue more simulations if we have room and more to do
+                while worker.pending_count() < MAX_IN_FLIGHT && queued < remaining_sims {
+                    worker.simulate(&game);
+                    queued += 1;
+                }
+                
+                // Yield if we're waiting for results
+                if worker.has_pending() && queued >= remaining_sims {
+                    thread::yield_now();
+                }
             }
         }
 
@@ -325,16 +338,24 @@ fn play_vs_random_game(
                 }
             }
 
-            // Run remaining simulations
+            // Run remaining simulations with pipelining
             {
                 let mut worker = SearchWorker::new(tree.clone(), search_handle.clone());
-                for _ in 1..sims_per_move {
-                    worker.simulate(&game);
+                const MAX_IN_FLIGHT: usize = 16;
+                let remaining_sims = sims_per_move.saturating_sub(1);
+                
+                let mut queued = 0u32;
+                while queued < remaining_sims || worker.has_pending() {
                     worker.poll_results();
-                }
-                while worker.has_pending() {
-                    worker.poll_results();
-                    thread::yield_now();
+                    
+                    while worker.pending_count() < MAX_IN_FLIGHT && queued < remaining_sims {
+                        worker.simulate(&game);
+                        queued += 1;
+                    }
+                    
+                    if worker.has_pending() && queued >= remaining_sims {
+                        thread::yield_now();
+                    }
                 }
             }
 

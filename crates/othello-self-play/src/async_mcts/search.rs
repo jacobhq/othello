@@ -120,6 +120,10 @@ impl<G: Game> SearchWorker<G> {
         !self.pending.is_empty()
     }
 
+    pub fn pending_count(&self) -> usize {
+        self.pending.len()
+    }
+
     /// Run one MCTS simulation
     pub fn simulate(&mut self, root_state: &G) {
         let mut path = Vec::new();
