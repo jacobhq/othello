@@ -8,8 +8,8 @@ use tracing::warn;
 /// Global counter for eval request ids
 static NEXT_EVAL_ID: AtomicU64 = AtomicU64::new(1);
 
-/// A trait was used which will allow this system to work very easily for other game
-/// implementations.
+/// A trait was used which will allow us to use code from OthelloGame, but augment it with things
+/// that are specific to MCTS.
 pub trait Game: Clone + Send + Sync + 'static {
     /// Player to move
     fn current_player(&self) -> Color;
@@ -224,7 +224,7 @@ impl<G: Game> SearchWorker<G> {
 
         let PendingEval { path, signs, leaf, state } = pending;
 
-        // 🔴 Remove virtual loss from every node where it was added
+        // Remove virtual loss from every node where it was added
         for i in 1..path.len() {
             let node = path[i];
             let sign = signs[i - 1];
