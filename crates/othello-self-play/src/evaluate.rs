@@ -73,7 +73,7 @@ fn play_eval_game(
         // This keeps GPU fed while tree gets updated from completed simulations
         {
             let mut worker = SearchWorker::new(tree.clone(), search_handle.clone());
-            const MAX_IN_FLIGHT: usize = 16;
+            const MAX_IN_FLIGHT: usize = 48;
             let remaining_sims = sims_per_move.saturating_sub(1);
             
             let mut queued = 0u32;
@@ -146,7 +146,7 @@ fn start_eval_gpu_worker(
             let batch = gpu.pop_batch(max_batch_size);
 
             if batch.is_empty() {
-                thread::yield_now();
+                thread::sleep(std::time::Duration::from_micros(50));
                 continue;
             }
 
@@ -204,8 +204,8 @@ pub fn evaluate_models(
     let old_queue = EvalQueue::new();
 
     // Start GPU workers for both models
-    let _new_gpu = start_eval_gpu_worker(new_queue.gpu_handle(), new_model, 64);
-    let _old_gpu = start_eval_gpu_worker(old_queue.gpu_handle(), old_model, 64);
+    let _new_gpu = start_eval_gpu_worker(new_queue.gpu_handle(), new_model, 256);
+    let _old_gpu = start_eval_gpu_worker(old_queue.gpu_handle(), old_model, 256);
 
     // Determine parallelism - use available CPU cores
     let num_parallel = num_cpus::get_physical();
@@ -341,7 +341,7 @@ fn play_vs_random_game(
             // Run remaining simulations with pipelining
             {
                 let mut worker = SearchWorker::new(tree.clone(), search_handle.clone());
-                const MAX_IN_FLIGHT: usize = 16;
+                const MAX_IN_FLIGHT: usize = 48;
                 let remaining_sims = sims_per_move.saturating_sub(1);
                 
                 let mut queued = 0u32;
@@ -413,7 +413,7 @@ pub fn evaluate_vs_random(
     );
 
     let model_queue = EvalQueue::new();
-    let _gpu_worker = start_eval_gpu_worker(model_queue.gpu_handle(), model_path, 64);
+    let _gpu_worker = start_eval_gpu_worker(model_queue.gpu_handle(), model_path, 256);
 
     let num_parallel = num_cpus::get_physical();
     info!("Running {} parallel evaluation games", num_parallel);
