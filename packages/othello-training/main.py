@@ -351,6 +351,7 @@ def train(
     ddp_print(f"  Learning rate: {lr}")
     ddp_print()
 
+    model.to(device)
     model.train()
 
     if dist.is_initialized():
@@ -358,12 +359,15 @@ def train(
     else:
         sampler = None
 
+    # Use workers only with DDP to avoid multiprocessing issues with CUDA
+    num_workers = 2 if dist.is_initialized() else 0
+
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         sampler=sampler,
         shuffle=(sampler is None),
-        num_workers=2,
+        num_workers=num_workers,
         pin_memory=True,
     )
 
@@ -591,50 +595,59 @@ if __name__ == "__main__":
         if args.data is None:
             raise ValueError("--data is required for training")
 
-        use_ddp = torch.cuda.device_count() > 1
+        # Only use DDP if launched via torchrun (which sets LOCAL_RANK)
+        use_ddp = "LOCAL_RANK" in os.environ
 
         if use_ddp:
             dist.init_process_group(backend="nccl")
             local_rank = int(os.environ["LOCAL_RANK"])
             torch.cuda.set_device(local_rank)
             device = torch.device(f"cuda:{local_rank}")
-        else:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-        dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
-
-        model = OthelloNet(num_blocks=args.res_blocks).to(device)
-
-        if use_ddp:
+            dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
+            model = OthelloNet(num_blocks=args.res_blocks).to(device)
             model = torch.nn.parallel.DistributedDataParallel(
                 model,
                 device_ids=[local_rank],
                 output_device=local_rank
             )
 
-
-        # Load checkpoint if provided
-        if args.checkpoint:
-            ddp_print(f"Loading checkpoint from {args.checkpoint}")
-            checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
-
-            if hasattr(model, "module"):
+            # Load checkpoint if provided
+            if args.checkpoint:
+                ddp_print(f"Loading checkpoint from {args.checkpoint}")
+                checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
                 model.module.load_state_dict(checkpoint)
-            else:
-                model.load_state_dict(checkpoint)
+                ddp_print("Checkpoint loaded successfully")
 
-            ddp_print("Checkpoint loaded successfully")
+            train(
+                model,
+                dataset,
+                prefix=args.out_prefix,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.lr,
+                device=device,
+            )
 
-        train(
-            model,
-            dataset,
-            prefix=args.out_prefix,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            lr=args.lr,
-            device=device,
-        )
-
-        if dist.is_initialized():
             dist.destroy_process_group()
+        else:
+            # Single-GPU path: simple, no DDP complexity
+            dataset = OthelloDataset(args.data, window_size=args.window, prefix=args.data_prefix)
+            model = OthelloNet(num_blocks=args.res_blocks)
+
+            # Load checkpoint if provided
+            if args.checkpoint:
+                print(f"Loading checkpoint from {args.checkpoint}")
+                checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+                model.load_state_dict(checkpoint)
+                print("Checkpoint loaded successfully")
+
+            train(
+                model,
+                dataset,
+                prefix=args.out_prefix,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.lr,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+            )
