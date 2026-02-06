@@ -55,7 +55,7 @@ const playModes: PlayMode[] = [
     description: "Challenge a bot from Easy to Master",
     color: "blue",
     id: "play_bots",
-    disabled: true
+    disabled: false
   },
   {
     icon: Users,
@@ -170,8 +170,7 @@ function RouteComponent() {
           </Alert>
           <FieldGroup>
             <FieldSet>
-              <RadioGroup value={gameMode} onChange={(e: any) => setGameMode(e.target.value)}
-                          defaultValue="pass_and_play" name="game_type">
+              <RadioGroup value={gameMode} onValueChange={(e) => setGameMode(e)} defaultValue="pass_and_play" name="game_type">
                 {playModes.map((playMode) => (
                   <FieldLabel htmlFor={playMode.id} key={playMode.id}>
                     <Field className="has-disabled:opacity-50 has-disabled:cursor-not-allowed" orientation="horizontal">

@@ -51,7 +51,7 @@ export function Sidebar({...props}: React.ComponentProps<typeof SidebarComponent
                 </div>
                 <div className="flex items-center gap-1.5 text-left text-sm leading-tight">
                   <span className="truncate font-semibold h-fit">Othello</span>
-                  <Badge variant="default">ALPHA</Badge>
+                  <Badge variant="default">Alpha</Badge>
                 </div>
               </Link>
             </SidebarMenuButton>
