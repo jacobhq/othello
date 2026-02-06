@@ -74,6 +74,10 @@ struct Args {
     /// Minimum win rate against random to allow promotion (default: 0.55 = 55%)
     #[arg(long, default_value_t = 0.55)]
     min_random_win_rate: f64,
+
+    /// Number of GPUs to use for training (default: 2). Uses torchrun for >1, plain python for 1.
+    #[arg(long, default_value_t = 2)]
+    num_gpus: u32,
 }
 
 /// Evaluation result from othello-self-play eval command
@@ -228,12 +232,16 @@ fn main() {
             model_idx + 1
         );
 
-        let mut train = Command::new("../../packages/othello-training/.venv/bin/torchrun");
+        let mut train = if args.num_gpus > 1 {
+            let mut cmd = Command::new("../../packages/othello-training/.venv/bin/torchrun");
+            cmd.arg("--standalone")
+                .arg(format!("--nproc_per_node={}", args.num_gpus));
+            cmd
+        } else {
+            Command::new(python_path)
+        };
 
-        train
-            .arg("--standalone")                 // single-node
-            .arg("--nproc_per_node=2")           // number of GPUs to use
-            .arg("../../packages/othello-training/main.py")
+        train.arg("../../packages/othello-training/main.py")
             .arg("--data")
             .arg(data_dir)
             .arg("--window")
