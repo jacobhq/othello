@@ -98,6 +98,7 @@ pub struct SearchWorker<G: Game> {
     pending: HashMap<u64, PendingEval<G>>,
 }
 
+/// Keeps track of pending evaluations
 struct PendingEval<G: Game> {
     path: Vec<NodeId>,
     signs: Vec<f32>,
@@ -106,6 +107,7 @@ struct PendingEval<G: Game> {
 }
 
 impl<G: Game> SearchWorker<G> {
+    /// Creates a new PendingEval with a given tree and search handle. Uses default c_puct of 1.5, and virtual_loss of 1.0
     pub fn new(tree: Tree, eval_queue: SearchHandle) -> Self {
         Self {
             tree,
@@ -116,10 +118,12 @@ impl<G: Game> SearchWorker<G> {
         }
     }
 
+    /// Checks if the worker has pending evaluations
     pub fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }
 
+    /// Returns len of pending evaluations
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
@@ -133,7 +137,11 @@ impl<G: Game> SearchWorker<G> {
 
         loop {
             path.push(node_id);
-            let sign = if state.current_player() == Color::Black { 1.0 } else { -1.0 };
+            let sign = if state.current_player() == Color::Black {
+                1.0
+            } else {
+                -1.0
+            };
             signs.push(sign);
 
             if state.is_terminal() {
@@ -172,7 +180,6 @@ impl<G: Game> SearchWorker<G> {
                 continue;
             }
 
-
             if let Some((action, child)) = self.tree.select_child(node_id, self.c_puct, sign) {
                 self.tree.add_virtual_loss(child, self.virtual_loss, sign);
 
@@ -191,12 +198,18 @@ impl<G: Game> SearchWorker<G> {
         // Encode from leaf's current player perspective for NN
         let encoded = state.encode(state.current_player());
 
-        self.pending.insert(id, PendingEval { path, signs, leaf, state });
-
-        self.eval_queue.push_request(EvalRequest {
+        self.pending.insert(
             id,
-            state: encoded,
-        });
+            PendingEval {
+                path,
+                signs,
+                leaf,
+                state,
+            },
+        );
+
+        self.eval_queue
+            .push_request(EvalRequest { id, state: encoded });
     }
 
     /// Opportunistically consume NN eval results for this worker only
@@ -216,13 +229,22 @@ impl<G: Game> SearchWorker<G> {
         }
     }
 
+    /// Applies a completed evaluation to the search tree.
+    ///
+    /// Reverts virtual loss, expands the evaluated leaf with a normalised legal
+    /// policy, and backpropagates the value (from Black’s perspective).
     fn handle_eval_result(&mut self, result: EvalResult) {
         let pending = match self.pending.remove(&result.id) {
             Some(p) => p,
             None => return, // stale / duplicate
         };
 
-        let PendingEval { path, signs, leaf, state } = pending;
+        let PendingEval {
+            path,
+            signs,
+            leaf,
+            state,
+        } = pending;
 
         // Remove virtual loss from every node where it was added
         for i in 1..path.len() {
@@ -231,11 +253,11 @@ impl<G: Game> SearchWorker<G> {
             self.tree.revert_virtual_loss(node, self.virtual_loss, sign);
         }
 
-        // Filter policy to legal moves and normalize
+        // Filter policy to legal moves and normalise
         let legal_moves = state.legal_moves();
         let legal_actions: std::collections::HashSet<usize> = legal_moves
             .iter()
-            .map(|(r, c)| r * 8 + c)
+            .map(|&(r, c)| rc_to_action(r, c))
             .collect();
 
         let filtered_policy: Vec<(usize, f32)> = result
@@ -265,7 +287,11 @@ impl<G: Game> SearchWorker<G> {
         self.tree.expand(leaf, &normalised_policy);
 
         // Backprop value from Black's perspective
-        let leaf_sign = if state.current_player() == Color::Black { 1.0 } else { -1.0 };
+        let leaf_sign = if state.current_player() == Color::Black {
+            1.0
+        } else {
+            -1.0
+        };
         let value_black = result.value * leaf_sign;
         self.tree.backprop(&path, value_black);
     }

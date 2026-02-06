@@ -62,19 +62,15 @@ struct Args {
     /// Skip loading checkpoint for the first iteration when resuming (start fresh but save checkpoints for subsequent iterations)
     #[arg(long, default_value_t = false)]
     skip_initial_checkpoint: bool,
-
     /// Enable model gating (only promote models that beat current best)
     #[arg(long, default_value_t = false)]
     enable_gating: bool,
-
     /// Win rate threshold for model promotion (default: 0.55 = 55%)
     #[arg(long, default_value_t = 0.55)]
     gating_threshold: f64,
-
     /// Minimum win rate against random to allow promotion (default: 0.55 = 55%)
     #[arg(long, default_value_t = 0.55)]
     min_random_win_rate: f64,
-
     /// Number of GPUs to use for training (default: 2). Uses torchrun for >1, plain python for 1.
     #[arg(long, default_value_t = 2)]
     num_gpus: u32,
