@@ -1,9 +1,9 @@
 //! Synchronous MCTS for single-game play, reusing the tree from othello-self-play.
 
-use othello_mcts::shared::game::Game;
-use crate::neural_net::{NeuralNet, nn_evaluate};
+use crate::neural_net::{NeuralNet, async_nn_evaluate, nn_evaluate};
 use burn::prelude::Backend;
 use othello::othello_game::{Color, Move, OthelloGame};
+use othello_mcts::shared::game::Game;
 use othello_mcts::shared::tree::Tree;
 use std::collections::HashSet;
 
@@ -50,24 +50,25 @@ fn filter_and_normalize(
 
 /// Run synchronous MCTS and return the best move.
 /// Uses the shared Tree from othello-self-play.
-pub fn mcts_search<B: Backend>(
+pub async fn mcts_search<B: Backend>(
     model: &NeuralNet<B>,
     game: &OthelloGame,
     player: Color,
     num_simulations: u32,
 ) -> Option<(usize, usize)> {
-    let legal_moves = game.legal_moves(player);
-    if legal_moves.is_empty() {
-        return None;
-    }
-
     let tree = Tree::new();
     let c_puct = 1.5;
 
-    // Initial expansion of root
-    let (policy, _) = nn_evaluate(model, &game, &player).unwrap();
-    let normalized = filter_and_normalize(policy, &legal_moves);
-    tree.expand(tree.root(), &normalized);
+    let legal_moves = game.legal_moves(player);
+
+    if legal_moves.is_empty() {
+        // Forced pass at root
+        tree.expand(tree.root(), &[(64, 1.0)]);
+    } else {
+        // Initial expansion of root
+        let (policy, _) = async_nn_evaluate(model, game, &player).await.unwrap();
+        tree.expand(tree.root(), &policy);
+    }
 
     // Run simulations
     for _ in 0..num_simulations {
@@ -112,10 +113,11 @@ pub fn mcts_search<B: Backend>(
                 node_id = child_id;
             } else {
                 // Leaf node: expand and evaluate
-                let (policy, value) = nn_evaluate(model, &sim_state, &current_player).unwrap();
-                let normalized = filter_and_normalize(policy, &moves);
+                let (policy, value) = async_nn_evaluate(model, &sim_state, &current_player)
+                    .await
+                    .unwrap();
 
-                tree.expand(node_id, &normalized);
+                tree.expand(node_id, &policy);
 
                 // Value is from current_player's perspective, convert to Black's
                 let leaf_sign = if current_player == Color::Black {

@@ -2,11 +2,11 @@ mod mcts;
 mod model;
 mod neural_net;
 
-use burn::backend::wgpu::WgpuDevice;
-use burn::tensor::Device;
 use crate::mcts::mcts_search;
 use crate::neural_net::{ModelType, NeuralNet};
-use othello::othello_game::{Color, OthelloError, OthelloGame};
+use burn::backend::wgpu::WgpuDevice;
+use burn::tensor::Device;
+use othello::othello_game::{Color, Move, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -59,20 +59,27 @@ impl WasmGame {
             Some(1) => Some(DeviceType::Ndarray),
             Some(2) => Some(DeviceType::WebGpu),
             Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
-            None => None
+            None => None,
         };
 
         if device_type.is_none() && game_type == GameType::PlayerVsModel {
-            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"));
+            return Err(JsValue::from_str(
+                "You must specify a DeviceType when playing in PlayerVsModel mode",
+            ));
         }
-
 
         let model = if game_type == GameType::PlayerVsModel {
             Some(match &device_type.unwrap() {
-                DeviceType::Ndarray => ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default())),
-                DeviceType::WebGpu => ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default())),
+                DeviceType::Ndarray => {
+                    ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default()))
+                }
+                DeviceType::WebGpu => {
+                    ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default()))
+                }
             })
-        } else { None };
+        } else {
+            None
+        };
 
         Ok(WasmGame {
             inner: OthelloGame::new(),
@@ -84,7 +91,13 @@ impl WasmGame {
 
     /// Creates a new Othello board from a black and a white bitboard, and sets the current turn.
     #[wasm_bindgen]
-    pub fn new_from_state(black: u64, white: u64, player: u8, game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
+    pub fn new_from_state(
+        black: u64,
+        white: u64,
+        player: u8,
+        game_type: u8,
+        device_type: Option<u8>,
+    ) -> Result<WasmGame, JsValue> {
         let color = match player {
             1 => Color::Black,
             2 => Color::White,
@@ -101,11 +114,13 @@ impl WasmGame {
             Some(1) => Some(DeviceType::Ndarray),
             Some(2) => Some(DeviceType::WebGpu),
             Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
-            None => None
+            None => None,
         };
 
         if device_type.is_none() && game_type == GameType::PlayerVsModel {
-            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"));
+            return Err(JsValue::from_str(
+                "You must specify a DeviceType when playing in PlayerVsModel mode",
+            ));
         }
 
         Ok(WasmGame {
@@ -181,7 +196,7 @@ impl WasmGame {
         vec![w, b]
     }
 
-    pub fn play_ai_move(&mut self) -> Result<(), JsValue>{
+    pub async fn play_ai_move(&mut self) -> Result<(), JsValue> {
         if self.game_type != GameType::PlayerVsModel || self.model.is_none() {
             return Err(JsValue::from_str("This is not an AI game"));
         }
@@ -190,16 +205,26 @@ impl WasmGame {
             return Err(JsValue::from_str("It's not the AI's turn"));
         }
 
-        let best_move = match self.model.as_ref().unwrap() {
-            ModelType::WithNdArrayBackend(model) => mcts_search(model, &self.inner, self.inner.current_turn, 800),
-            ModelType::WithWgpuBackend(model) => mcts_search(model, &self.inner, self.inner.current_turn, 800)
-        }.unwrap();
+        let ai_move = match self.model.as_ref().unwrap() {
+            ModelType::WithNdArrayBackend(model) => {
+                mcts_search(model, &self.inner, self.inner.current_turn, 800).await
+            }
+            ModelType::WithWgpuBackend(model) => {
+                mcts_search(model, &self.inner, self.inner.current_turn, 800).await
+            }
+        };
 
-        match self.inner.play(best_move.0, best_move.1, self.inner.current_turn) {
-            Ok(()) => Ok(()),
-            Err(OthelloError::NoMovesForPlayer) => Err(JsValue::from_str("You have no moves")),
-            Err(OthelloError::NotYourTurn) => Err(JsValue::from_str("It's not your turn")),
-            Err(OthelloError::IllegalMove) => Err(JsValue::from_str("Illegal move"))
-        }
+        let player = self.inner.current_turn;
+
+        let mv = match ai_move {
+            Some((r, c)) => Move::Move(r, c),
+            None => Move::Pass,
+        };
+
+        self.inner.mcts_play(mv, player).map_err(|e| match e {
+            OthelloError::NoMovesForPlayer => JsValue::from_str("AI has no legal moves"),
+            OthelloError::NotYourTurn => JsValue::from_str("It's not the AI's turn"),
+            OthelloError::IllegalMove => JsValue::from_str("AI attempted an illegal move"),
+        })
     }
 }

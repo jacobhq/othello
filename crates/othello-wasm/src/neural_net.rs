@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::model::demo::Model as DemoModel;
 use burn::Tensor;
 use burn::backend::{NdArray, WebGpu};
@@ -73,7 +74,7 @@ fn encode_game<B: Backend>(game: &OthelloGame, player: Color) -> Tensor<B, 4> {
     Tensor::<B, 4>::from_floats(data.as_slice(), &B::Device::default())
 }
 
-pub fn nn_evaluate<B: Backend>(
+pub async fn nn_evaluate<B: Backend>(
     model: &NeuralNet<B>,
     game: &OthelloGame,
     player: &Color,
@@ -99,11 +100,11 @@ pub fn nn_evaluate<B: Backend>(
     Ok((sparse_policy, value))
 }
 
-pub fn evaluate_test<B: Backend>(
-    model: NeuralNet<B>,
+pub async fn async_nn_evaluate<B: Backend>(
+    model: &NeuralNet<B>,
     game: &OthelloGame,
-    player: Color,
-) -> Result<PolicyVectorWithEvaluation, DataError> {
+    player: &Color,
+) -> Result<(Vec<(usize,f32)>, f32), DataError> {
     let mut data = vec![0.0f32; 1 * 2 * 8 * 8];
 
     let idx = |b, c, r, col| (((b * 2 + c) * 8) as usize + r) * 8 + col;
@@ -125,7 +126,20 @@ pub fn evaluate_test<B: Backend>(
 
     let input = Tensor::<B, 4>::from_floats(data.as_slice(), &B::Device::default());
 
-    let outputs = model.forward(input);
+    let (log_policy, value) = model.forward(input).await?;
+    let policy: Vec<f32> = log_policy.iter().map(|&lp| lp.exp()).collect();
 
-    todo!()
+    let legal_set: HashSet<usize> = game.legal_moves(*player).iter().map(|(r, c)| r * 8 + c).collect();
+
+    let filtered: Vec<(usize, f32)> = policy
+        .into_iter()
+        .enumerate()
+        .filter(|(a, _)| legal_set.contains(a))
+        .collect();
+
+    let sum: f32 = filtered.iter().map(|(_, p)| p).sum();
+
+    let filtered_policy: Vec<(usize, f32)> = filtered.into_iter().map(|(a, p)| (a, p / sum)).collect();
+
+    Ok((filtered_policy, value))
 }

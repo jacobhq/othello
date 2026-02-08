@@ -32,7 +32,7 @@ export default function DemoBoard() {
     }, []);
 
     const initialiseGame = () => {
-        const g = new WasmGame();
+        const g = new WasmGame(2, 1);
         setGame(g);
         setBoard(g.board());
         setLegalMoves(g.legal_moves());
@@ -79,6 +79,39 @@ export default function DemoBoard() {
             toast.error(e as string)
         }
     }
+
+  // Add this state
+  const [isAiThinking, setIsAiThinking] = useState(false);
+
+// Add this useEffect after your existing useEffect
+  useEffect(() => {
+    if (game && currentPlayer === 2 && !gameOver && !isAiThinking) {
+      playAiMove();
+    }
+  }, [currentPlayer, game, gameOver]);
+
+// Add this function before handleClick
+  const playAiMove = async () => {
+    if (!game || isAiThinking) return;
+    setIsAiThinking(true);
+    try {
+      await game.play_ai_move();
+      setBoard(game.board());
+      setLegalMoves(game.legal_moves());
+      setScore([...game.score()] as [number, number]);
+      setCurrentPlayer(game.current_player() as 2 | 1);
+      setGameOver(game.game_over());
+    } catch (e) {
+      toast.error(e as string);
+    } finally {
+      setIsAiThinking(false);
+    }
+  }
+
+// Update handleClick first line to:
+  if (!game || isAiThinking || currentPlayer !== 1) {
+    return;
+  }
 
     return (
         <>
