@@ -8,5 +8,18 @@ crate-type = ["cdylib"]
 
 [dependencies]
 othello = { path = "../othello" }
+othello-self-play = { path = "../othello-self-play" }
 wasm-bindgen = "0.2.105"
 serde-wasm-bindgen = "0.6.5"
+burn = { git = "https://github.com/tracel-ai/burn", features = ["ndarray", "webgpu"] }
+burn-store = { git = "https://github.com/tracel-ai/burn", default-features = false, features = ["std", "burnpack"] }
+tracing = "0.1.44"
+wasm-tracing = "2.1.0"
+console_error_panic_hook = "0.1.7"
+# https://github.com/rust-random/getrandom/#webassembly-support
+getrandom = { version = "0.3.4", default-features = false, features = [
+    "wasm_js",
+] }
+
+[build-dependencies]
+burn-onnx = { git = "https://github.com/tracel-ai/burn-onnx" }

@@ -1,36 +1,113 @@
+mod mcts;
+mod model;
+mod neural_net;
+
+use crate::model::demo::Model as DemoModel;
+use crate::neural_net::ModelType;
+use burn::backend::{NdArray, WebGpu};
+use burn::prelude::Backend;
 use othello::othello_game::{Color, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn start() -> Result<(), JsValue> {
+    // print pretty errors in wasm https://github.com/rustwasm/console_error_panic_hook
+    // This is not needed for tracing_wasm to work, but it is a common tool for getting proper error line numbers for panics.
+    console_error_panic_hook::set_once();
+
+    wasm_tracing::set_as_global_default();
+
+    Ok(())
+}
+
+#[wasm_bindgen]
+#[repr(u8)]
+#[derive(Eq, PartialEq)]
+pub enum GameType {
+    PassAndPlay = 1,
+    PlayerVsModel = 2,
+}
+
+#[wasm_bindgen]
+#[repr(u8)]
+pub enum DeviceType {
+    Ndarray = 1,
+    WebGpu = 2,
+}
 
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]
 pub struct WasmGame {
     inner: OthelloGame,
+    game_type: GameType,
+    pub(crate) model: Option<ModelType>,
+    device_type: Option<DeviceType>,
+    human_player: Option<Color>
 }
 
 #[wasm_bindgen]
 impl WasmGame {
     /// Create a new standard Othello board.
-    ///
-    /// The player is not passed as a string due to performance reasons
-    /// Use player = 1 for Black, player 2 for White
     #[wasm_bindgen(constructor)]
-    pub fn new() -> WasmGame {
-        WasmGame {
-            inner: OthelloGame::new(),
+    pub fn new(game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
+        let game_type = match game_type {
+            1 => GameType::PassAndPlay,
+            2 => GameType::PlayerVsModel,
+            _ => return Err(JsValue::from_str("GameType out of range")),
+        };
+
+        let device_type = match device_type {
+            Some(1) => Some(DeviceType::Ndarray),
+            Some(2) => Some(DeviceType::WebGpu),
+            Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
+            None => None
+        };
+
+        if device_type.is_none() && game_type == GameType::PlayerVsModel {
+            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"))
         }
+
+        Ok(WasmGame {
+            inner: OthelloGame::new(),
+            model: None,
+            game_type,
+            device_type,
+            human_player: Some(Color::Black)
+        })
     }
 
     /// Creates a new Othello board from a black and a white bitboard, and sets the current turn.
     #[wasm_bindgen]
-    pub fn new_from_state(black: u64, white: u64, player: u8) -> Result<WasmGame, JsValue> {
+    pub fn new_from_state(black: u64, white: u64, player: u8, game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
         let color = match player {
             1 => Color::Black,
             2 => Color::White,
             _ => return Err(JsValue::from_str("Player out of range")),
         };
 
+        let game_type = match game_type {
+            1 => GameType::PassAndPlay,
+            2 => GameType::PlayerVsModel,
+            _ => return Err(JsValue::from_str("GameType out of range")),
+        };
+
+        let device_type = match device_type {
+            Some(1) => Some(DeviceType::Ndarray),
+            Some(2) => Some(DeviceType::WebGpu),
+            Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
+            None => None
+        };
+
+        if device_type.is_none() && game_type == GameType::PlayerVsModel {
+            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"))
+        }
+
         Ok(WasmGame {
             inner: OthelloGame::new_with_state(black, white, color),
+            model: None,
+            game_type,
+            device_type,
+             human_player: Some(color)
         })
     }
 
