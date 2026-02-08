@@ -2,10 +2,10 @@ mod mcts;
 mod model;
 mod neural_net;
 
-use crate::model::demo::Model as DemoModel;
-use crate::neural_net::ModelType;
-use burn::backend::{NdArray, WebGpu};
-use burn::prelude::Backend;
+use burn::backend::wgpu::WgpuDevice;
+use burn::tensor::Device;
+use crate::mcts::mcts_search;
+use crate::neural_net::{ModelType, NeuralNet};
 use othello::othello_game::{Color, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
 
@@ -38,11 +38,10 @@ pub enum DeviceType {
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]
 pub struct WasmGame {
-    inner: OthelloGame,
+    pub(crate) inner: OthelloGame,
     game_type: GameType,
     pub(crate) model: Option<ModelType>,
-    device_type: Option<DeviceType>,
-    human_player: Option<Color>
+    human_player: Option<Color>,
 }
 
 #[wasm_bindgen]
@@ -64,15 +63,22 @@ impl WasmGame {
         };
 
         if device_type.is_none() && game_type == GameType::PlayerVsModel {
-            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"))
+            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"));
         }
+
+
+        let model = if game_type == GameType::PlayerVsModel {
+            Some(match &device_type.unwrap() {
+                DeviceType::Ndarray => ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default())),
+                DeviceType::WebGpu => ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default())),
+            })
+        } else { None };
 
         Ok(WasmGame {
             inner: OthelloGame::new(),
-            model: None,
+            model,
             game_type,
-            device_type,
-            human_player: Some(Color::Black)
+            human_player: Some(Color::Black),
         })
     }
 
@@ -99,15 +105,14 @@ impl WasmGame {
         };
 
         if device_type.is_none() && game_type == GameType::PlayerVsModel {
-            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"))
+            return Err(JsValue::from_str("You must specify a DeviceType when playing in PlayerVsModel mode"));
         }
 
         Ok(WasmGame {
             inner: OthelloGame::new_with_state(black, white, color),
             model: None,
             game_type,
-            device_type,
-             human_player: Some(color)
+            human_player: Some(color),
         })
     }
 
@@ -174,5 +179,27 @@ impl WasmGame {
     pub fn score(&self) -> Vec<u32> {
         let (w, b) = self.inner.score();
         vec![w, b]
+    }
+
+    pub fn play_ai_move(&mut self) -> Result<(), JsValue>{
+        if self.game_type != GameType::PlayerVsModel || self.model.is_none() {
+            return Err(JsValue::from_str("This is not an AI game"));
+        }
+
+        if self.inner.current_turn == self.human_player.unwrap() {
+            return Err(JsValue::from_str("It's not the AI's turn"));
+        }
+
+        let best_move = match self.model.as_ref().unwrap() {
+            ModelType::WithNdArrayBackend(model) => mcts_search(model, &self.inner, self.inner.current_turn, 800),
+            ModelType::WithWgpuBackend(model) => mcts_search(model, &self.inner, self.inner.current_turn, 800)
+        }.unwrap();
+
+        match self.inner.play(best_move.0, best_move.1, self.inner.current_turn) {
+            Ok(()) => Ok(()),
+            Err(OthelloError::NoMovesForPlayer) => Err(JsValue::from_str("You have no moves")),
+            Err(OthelloError::NotYourTurn) => Err(JsValue::from_str("It's not your turn")),
+            Err(OthelloError::IllegalMove) => Err(JsValue::from_str("Illegal move"))
+        }
     }
 }

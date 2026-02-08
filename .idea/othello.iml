@@ -8,6 +8,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/othello-api/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/othello-self-play/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/othello-learn/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/othello-mcts/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-demo/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello/target" />
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-wasm/target" />
@@ -17,6 +18,7 @@
       <excludeFolder url="file://$MODULE_DIR$/crates/othello-learn/target" />
       <excludeFolder url="file://$MODULE_DIR$/packages/othello-training/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/packages/othello-training-stats/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/crates/othello-mcts/target" />
     </content>
     <orderEntry type="jdk" jdkName="uv (othello-training-stats)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
