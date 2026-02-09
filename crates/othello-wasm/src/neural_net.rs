@@ -4,6 +4,7 @@ use burn::Tensor;
 use burn::backend::{NdArray, WebGpu};
 use burn::prelude::Backend;
 use burn::tensor::{DataError, Shape, Transaction};
+use tracing::debug;
 use othello::othello_game::{Color, OthelloGame};
 
 /// An element in the policy vector in form ((row, col), probability)
@@ -105,26 +106,25 @@ pub async fn async_nn_evaluate<B: Backend>(
     game: &OthelloGame,
     player: &Color,
 ) -> Result<(Vec<(usize,f32)>, f32), DataError> {
-    let mut data = vec![0.0f32; 1 * 2 * 8 * 8];
-
-    let idx = |b, c, r, col| (((b * 2 + c) * 8) as usize + r) * 8 + col;
+    debug!("async eval on {game}");
+    let mut data = [[[[0.0f32; 8]; 8]; 2]; 1];
 
     for row in 0..8 {
         for col in 0..8 {
             if let Some(c) = game.get(row, col) {
                 match (player, c) {
                     (Color::White, Color::White) | (Color::Black, Color::Black) => {
-                        data[idx(0, 0, row, col)] = 1.0;
+                        data[0][0][row][col] = 1.0;
                     }
                     _ => {
-                        data[idx(0, 1, row, col)] = 1.0;
+                        data[0][1][row][col] = 1.0;
                     }
                 }
             }
         }
     }
 
-    let input = Tensor::<B, 4>::from_floats(data.as_slice(), &B::Device::default());
+    let input = Tensor::<B, 4>::from_floats(data, &B::Device::default());
 
     let (log_policy, value) = model.forward(input).await?;
     let policy: Vec<f32> = log_policy.iter().map(|&lp| lp.exp()).collect();

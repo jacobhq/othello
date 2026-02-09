@@ -6,6 +6,7 @@ use crate::mcts::mcts_search;
 use crate::neural_net::{ModelType, NeuralNet};
 use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
+use tracing::debug;
 use othello::othello_game::{Color, Move, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
 
@@ -216,10 +217,14 @@ impl WasmGame {
 
         let player = self.inner.current_turn;
 
+        debug!("Called play AI move");
+
         let mv = match ai_move {
             Some((r, c)) => Move::Move(r, c),
             None => Move::Pass,
         };
+
+        debug!("AI plays {:?}", mv);
 
         self.inner.mcts_play(mv, player).map_err(|e| match e {
             OthelloError::NoMovesForPlayer => JsValue::from_str("AI has no legal moves"),

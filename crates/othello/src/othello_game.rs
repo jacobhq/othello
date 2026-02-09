@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use crate::bitboard::BitBoard;
 
 /// Move used in MCTS to ensure that the tree can alternate cleanly
+#[derive(Debug)]
 pub enum Move {
     Move(usize, usize),
     Pass
