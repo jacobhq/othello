@@ -1,0 +1,15 @@
+[package]
+name = "othello-model-gen"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "convert-weights"
+path = "src/main.rs"
+
+[dependencies]
+burn = { git = "https://github.com/tracel-ai/burn", features = ["ndarray"] }
+burn-store = { git = "https://github.com/tracel-ai/burn", features = ["std", "burnpack"] }
+
+[build-dependencies]
+burn-onnx = { git = "https://github.com/tracel-ai/burn-onnx" }

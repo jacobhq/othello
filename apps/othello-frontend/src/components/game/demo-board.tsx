@@ -32,7 +32,7 @@ export default function DemoBoard() {
     }, []);
 
     const initialiseGame = () => {
-        const g = new WasmGame(2, 1);
+        const g = new WasmGame(2, 2);
         setGame(g);
         setBoard(g.board());
         setLegalMoves(g.legal_moves());

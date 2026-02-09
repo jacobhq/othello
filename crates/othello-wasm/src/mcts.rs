@@ -1,11 +1,11 @@
-//! Synchronous MCTS for single-game play, reusing the tree from othello-self-play.
+//! Synchronous MCTS for single-game play, using a WASM-compatible tree.
 
-use crate::neural_net::{NeuralNet, async_nn_evaluate, nn_evaluate};
+use crate::neural_net::{NeuralNet, async_nn_evaluate};
+use crate::tree::Tree;
 use burn::prelude::Backend;
 use othello::othello_game::{Color, Move, OthelloGame};
-use othello_mcts::shared::game::Game;
-use othello_mcts::shared::tree::Tree;
 use std::collections::HashSet;
+use othello_mcts::shared::game::Game;
 
 /// Encode the game state for the neural network (from player's perspective)
 fn encode_state(game: &OthelloGame, player: Color) -> Vec<f32> {
