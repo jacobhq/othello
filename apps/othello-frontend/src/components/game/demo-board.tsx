@@ -1,10 +1,6 @@
 import Counter from "@/components/game/counter.tsx";
 import Score from "@/components/game/score.tsx";
-import { WasmGame } from "@wasm/othello_wasm";
-import { useEffect, useState, useRef } from "react";
-import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { createBatchEvaluator } from "@/lib/onnx-inference";
 import {
     Dialog,
     DialogClose,
@@ -14,146 +10,25 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import posthog from "posthog-js";
 import { Link } from "@tanstack/react-router";
 import LegalMoveDot from "@/components/game/legal-move-dot.tsx";
+import { useOthelloGame } from "@/hooks/use-othello-game";
 
 export default function DemoBoard() {
-    const [game, setGame] = useState<WasmGame | null>(null);
-    const [board, setBoard] = useState<(0 | 1 | 2)[][]>([]);
-    const [legalMoves, setLegalMoves] = useState<[number, number][]>([]);
-    const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1);
-    const [score, setScore] = useState<[number, number]>([0, 0]);
-    const [gameOver, setGameOver] = useState(false);
-    const [firstMove, setFirstMove] = useState(true);
-    const evaluatorRef = useRef<((inputs: Float32Array, batchSize: number) => Promise<{ policies: Float32Array, values: Float32Array }>) | null>(null);
-
-    useEffect(() => {
-        initialiseGame()
-    }, []);
-
-    const initialiseGame = async () => {
-        // DeviceType 3 = OnnxWeb (no burn model loaded)
-        const g = new WasmGame(2, 3);
-
-        // Load ONNX evaluator if not already loaded
-        if (!evaluatorRef.current) {
-            evaluatorRef.current = await createBatchEvaluator();
-        }
-        g.set_evaluator(evaluatorRef.current);
-
-        setGame(g);
-        setBoard(g.board());
-        setLegalMoves(g.legal_moves());
-        setCurrentPlayer(g.current_player() as 1 | 2);
-        setScore([...g.score()] as [number, number]);
-    }
-
-    const handleClick = (i: number, j: number) => {
-        try {
-            if (!game || isAiThinking || currentPlayer !== 1) {
-                return
-            }
-
-            console.log(i, j, game.current_player())
-            game.play_turn(i, j, game.current_player())
-            const newBoard = game.board();
-            setBoard(newBoard)
-            setLegalMoves(game.legal_moves())
-            setScore([...game.score()] as [number, number])
-            setCurrentPlayer(game.current_player() as 2 | 1)
-            setGameOver(game.game_over())
-
-            if (firstMove) {
-                posthog.capture("game_started", {
-                    type: "demo"
-                })
-            }
-
-            if (game.game_over()) {
-                posthog.capture("game_terminated", {
-                    type: "demo",
-                    winner: score[0] > score[1] ? "white" : "black"
-                })
-            }
-
-            setFirstMove(false)
-        } catch (e) {
-            posthog.capture("error", {
-                type: "demo",
-                text: e as string,
-                row: i,
-                col: j
-            })
-            toast.error(e as string)
-        }
-    }
-
-    // Add this state
-    const [isAiThinking, setIsAiThinking] = useState(false);
-
-    // Add this useEffect after your existing useEffect
-    useEffect(() => {
-        if (game && currentPlayer === 2 && !gameOver && !isAiThinking) {
-            setLegalMoves([]);
-            const aiPromise = playAiMove();
-
-            toast.promise(aiPromise, {
-                position: "bottom-center",
-                loading: "AI is thinking",
-                success: "AI played. Your turn!",
-                error: 'Error',
-            })
-        }
-    }, [currentPlayer, game, gameOver]);
-
-    // Auto-pass for Human if no legal moves
-    useEffect(() => {
-        if (game && currentPlayer === 1 && !gameOver && legalMoves.length === 0) {
-            const timer = setTimeout(() => {
-                toast("No legal moves available. Passing turn to AI...");
-                try {
-                    game.play_turn(0, 0, 1);
-                } catch (e) {
-                    if (e === "You have no moves") {
-                        // Expected behavior: turn switched internally
-                        setBoard(game.board());
-                        setLegalMoves(game.legal_moves());
-                        setScore([...game.score()] as [number, number]);
-                        setCurrentPlayer(game.current_player() as 1 | 2);
-                        setGameOver(game.game_over());
-                    } else {
-                        toast.error(e as string);
-                    }
-                }
-            }, 1500); // Small delay for UX
-            return () => clearTimeout(timer);
-        }
-    }, [currentPlayer, legalMoves, game, gameOver]);
-
-    // Add this function before handleClick
-    const playAiMove = async () => {
-        if (!game || isAiThinking) return;
-        setIsAiThinking(true);
-        try {
-            await game.play_ai_move();
-            setBoard(game.board());
-            setLegalMoves(game.legal_moves());
-            setScore([...game.score()] as [number, number]);
-            setCurrentPlayer(game.current_player() as 2 | 1);
-            setGameOver(game.game_over());
-        } catch (e) {
-            toast.error(e as string);
-        } finally {
-            setIsAiThinking(false);
-        }
-    }
+    const {
+        board,
+        legalMoves,
+        currentPlayer,
+        score,
+        gameOver,
+        onHumanMove,
+        resetGame
+    } = useOthelloGame();
 
     return (
         <>
             <Dialog open={gameOver} onOpenChange={(open) => {
-                !open && initialiseGame()
-                setGameOver(open)
+                !open && resetGame()
             }}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
@@ -184,7 +59,7 @@ export default function DemoBoard() {
                     <div className="grid grid-cols-8 gap-1 sm:gap-2 xl:gap-3" key={i}>
                         {Array.from({ length: 8 }, (_, j) => (
                             <div className="bg-green-700 rounded-sm sm:rounded p-1 sm:p-2 xl:p3" key={j}
-                                onClick={() => handleClick(i, j)}>
+                                onClick={() => onHumanMove(i, j)}>
                                 {board?.[i]?.[j] !== 0 && (
                                     <Counter color={board?.[i]?.[j]} />
                                 )}
