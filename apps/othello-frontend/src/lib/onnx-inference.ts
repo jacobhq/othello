@@ -73,7 +73,7 @@ export async function createBatchEvaluator(): Promise<
         }
         eps.push("wasm");
 
-        session = await ort.InferenceSession.create("/ibm_full_train_15_othello_net_epoch_006.onnx", {
+        session = await ort.InferenceSession.create("/othello_net_sm_14_othello_net_epoch_004.onnx", {
             executionProviders: eps,
         });
 

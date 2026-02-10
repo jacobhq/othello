@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AiRouteImport } from './routes/ai'
 import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthSignupRouteImport } from './routes/auth/signup'
@@ -19,6 +20,11 @@ import { Route as DashboardHistoryRouteImport } from './routes/_dashboard/histor
 import { Route as DashboardPlayIndexRouteImport } from './routes/_dashboard/play/index'
 import { Route as DashboardPlayGameIdRouteImport } from './routes/_dashboard/play/$gameId'
 
+const AiRoute = AiRouteImport.update({
+  id: '/ai',
+  path: '/ai',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRouteRoute = DashboardRouteRouteImport.update({
   id: '/_dashboard',
   getParentRoute: () => rootRouteImport,
@@ -66,6 +72,7 @@ const DashboardPlayGameIdRoute = DashboardPlayGameIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/ai': typeof AiRoute
   '/history': typeof DashboardHistoryRoute
   '/home': typeof DashboardHomeRoute
   '/tutorial': typeof DashboardTutorialRoute
@@ -76,6 +83,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ai': typeof AiRoute
   '/history': typeof DashboardHistoryRoute
   '/home': typeof DashboardHomeRoute
   '/tutorial': typeof DashboardTutorialRoute
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_dashboard': typeof DashboardRouteRouteWithChildren
+  '/ai': typeof AiRoute
   '/_dashboard/history': typeof DashboardHistoryRoute
   '/_dashboard/home': typeof DashboardHomeRoute
   '/_dashboard/tutorial': typeof DashboardTutorialRoute
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/ai'
     | '/history'
     | '/home'
     | '/tutorial'
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/ai'
     | '/history'
     | '/home'
     | '/tutorial'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_dashboard'
+    | '/ai'
     | '/_dashboard/history'
     | '/_dashboard/home'
     | '/_dashboard/tutorial'
@@ -133,12 +145,20 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRouteRoute: typeof DashboardRouteRouteWithChildren
+  AiRoute: typeof AiRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthSignupRoute: typeof AuthSignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/ai': {
+      id: '/ai'
+      path: '/ai'
+      fullPath: '/ai'
+      preLoaderRoute: typeof AiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_dashboard': {
       id: '/_dashboard'
       path: ''
@@ -228,6 +248,7 @@ const DashboardRouteRouteWithChildren = DashboardRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRouteRoute: DashboardRouteRouteWithChildren,
+  AiRoute: AiRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthSignupRoute: AuthSignupRoute,
 }

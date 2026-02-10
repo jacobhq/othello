@@ -107,6 +107,30 @@ export default function DemoBoard() {
         }
     }, [currentPlayer, game, gameOver]);
 
+    // Auto-pass for Human if no legal moves
+    useEffect(() => {
+        if (game && currentPlayer === 1 && !gameOver && legalMoves.length === 0) {
+            const timer = setTimeout(() => {
+                toast("No legal moves available. Passing turn to AI...");
+                try {
+                    game.play_turn(0, 0, 1);
+                } catch (e) {
+                    if (e === "You have no moves") {
+                        // Expected behavior: turn switched internally
+                        setBoard(game.board());
+                        setLegalMoves(game.legal_moves());
+                        setScore([...game.score()] as [number, number]);
+                        setCurrentPlayer(game.current_player() as 1 | 2);
+                        setGameOver(game.game_over());
+                    } else {
+                        toast.error(e as string);
+                    }
+                }
+            }, 1500); // Small delay for UX
+            return () => clearTimeout(timer);
+        }
+    }, [currentPlayer, legalMoves, game, gameOver]);
+
     // Add this function before handleClick
     const playAiMove = async () => {
         if (!game || isAiThinking) return;
