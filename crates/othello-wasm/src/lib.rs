@@ -1,36 +1,143 @@
-use othello::othello_game::{Color, OthelloError, OthelloGame};
+mod mcts;
+mod model;
+mod neural_net;
+
+use crate::mcts::{mcts_search, mcts_search_js_batched};
+use crate::neural_net::{ModelType, NeuralNet};
+use burn::backend::wgpu::WgpuDevice;
+use burn::tensor::Device;
+use tracing::debug;
+use othello::othello_game::{Color, Move, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn start() -> Result<(), JsValue> {
+    // print pretty errors in wasm https://github.com/rustwasm/console_error_panic_hook
+    // This is not needed for tracing_wasm to work, but it is a common tool for getting proper error line numbers for panics.
+    console_error_panic_hook::set_once();
+
+    wasm_tracing::set_as_global_default();
+
+    Ok(())
+}
+
+#[wasm_bindgen]
+#[repr(u8)]
+#[derive(Eq, PartialEq)]
+pub enum GameType {
+    PassAndPlay = 1,
+    PlayerVsModel = 2,
+}
+
+#[wasm_bindgen]
+#[repr(u8)]
+pub enum DeviceType {
+    Ndarray = 1,
+    WebGpu = 2,
+    OnnxWeb = 3,
+}
+
+const AI_SIMS: u32 = 2000;
 
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]
 pub struct WasmGame {
-    inner: OthelloGame,
+    pub(crate) inner: OthelloGame,
+    game_type: GameType,
+    pub(crate) model: Option<ModelType>,
+    eval_fn: Option<js_sys::Function>,
+    human_player: Option<Color>,
 }
 
 #[wasm_bindgen]
 impl WasmGame {
     /// Create a new standard Othello board.
-    ///
-    /// The player is not passed as a string due to performance reasons
-    /// Use player = 1 for Black, player 2 for White
     #[wasm_bindgen(constructor)]
-    pub fn new() -> WasmGame {
-        WasmGame {
-            inner: OthelloGame::new(),
+    pub fn new(game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
+        let game_type = match game_type {
+            1 => GameType::PassAndPlay,
+            2 => GameType::PlayerVsModel,
+            _ => return Err(JsValue::from_str("GameType out of range")),
+        };
+
+        let device_type = match device_type {
+            Some(1) => Some(DeviceType::Ndarray),
+            Some(2) => Some(DeviceType::WebGpu),
+            Some(3) => Some(DeviceType::OnnxWeb),
+            Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
+            None => None,
+        };
+
+        if device_type.is_none() && game_type == GameType::PlayerVsModel {
+            return Err(JsValue::from_str(
+                "You must specify a DeviceType when playing in PlayerVsModel mode",
+            ));
         }
+
+        let model = if game_type == GameType::PlayerVsModel {
+            match &device_type.unwrap() {
+                DeviceType::Ndarray => {
+                    Some(ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default())))
+                }
+                DeviceType::WebGpu => {
+                    Some(ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default())))
+                }
+                DeviceType::OnnxWeb => None, // eval_fn set later via set_evaluator()
+            }
+        } else {
+            None
+        };
+
+        Ok(WasmGame {
+            inner: OthelloGame::new(),
+            model,
+            eval_fn: None,
+            game_type,
+            human_player: Some(Color::Black),
+        })
     }
 
     /// Creates a new Othello board from a black and a white bitboard, and sets the current turn.
     #[wasm_bindgen]
-    pub fn new_from_state(black: u64, white: u64, player: u8) -> Result<WasmGame, JsValue> {
+    pub fn new_from_state(
+        black: u64,
+        white: u64,
+        player: u8,
+        game_type: u8,
+        device_type: Option<u8>,
+    ) -> Result<WasmGame, JsValue> {
         let color = match player {
             1 => Color::Black,
             2 => Color::White,
             _ => return Err(JsValue::from_str("Player out of range")),
         };
 
+        let game_type = match game_type {
+            1 => GameType::PassAndPlay,
+            2 => GameType::PlayerVsModel,
+            _ => return Err(JsValue::from_str("GameType out of range")),
+        };
+
+        let device_type = match device_type {
+            Some(1) => Some(DeviceType::Ndarray),
+            Some(2) => Some(DeviceType::WebGpu),
+            Some(3) => Some(DeviceType::OnnxWeb),
+            Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
+            None => None,
+        };
+
+        if device_type.is_none() && game_type == GameType::PlayerVsModel {
+            return Err(JsValue::from_str(
+                "You must specify a DeviceType when playing in PlayerVsModel mode",
+            ));
+        }
+
         Ok(WasmGame {
             inner: OthelloGame::new_with_state(black, white, color),
+            model: None,
+            eval_fn: None,
+            game_type,
+            human_player: Some(color),
         })
     }
 
@@ -97,5 +204,54 @@ impl WasmGame {
     pub fn score(&self) -> Vec<u32> {
         let (w, b) = self.inner.score();
         vec![w, b]
+    }
+
+    /// Set the JS evaluator function for ONNX Runtime Web inference.
+    /// The function should accept a Float32Array(128) and return
+    /// Promise<{policy: Float32Array(64), value: number}>.
+    pub fn set_evaluator(&mut self, eval_fn: js_sys::Function) {
+        self.eval_fn = Some(eval_fn);
+    }
+
+    pub async fn play_ai_move(&mut self) -> Result<(), JsValue> {
+        if self.game_type != GameType::PlayerVsModel {
+            return Err(JsValue::from_str("This is not an AI game"));
+        }
+
+        if self.inner.current_turn == self.human_player.unwrap() {
+            return Err(JsValue::from_str("It's not the AI's turn"));
+        }
+
+        let ai_move = if let Some(eval_fn) = &self.eval_fn {
+            mcts_search_js_batched(eval_fn, &self.inner, self.inner.current_turn, AI_SIMS).await
+        } else if let Some(model) = &self.model {
+            match model {
+                ModelType::WithNdArrayBackend(model) => {
+                    mcts_search(model, &self.inner, self.inner.current_turn, AI_SIMS).await
+                }
+                ModelType::WithWgpuBackend(model) => {
+                    mcts_search(model, &self.inner, self.inner.current_turn, AI_SIMS).await
+                }
+            }
+        } else {
+            return Err(JsValue::from_str("No model or evaluator set"));
+        };
+
+        let player = self.inner.current_turn;
+
+        debug!("Called play AI move");
+
+        let mv = match ai_move {
+            Some((r, c)) => Move::Move(r, c),
+            None => Move::Pass,
+        };
+
+        debug!("AI plays {:?}", mv);
+
+        self.inner.mcts_play(mv, player).map_err(|e| match e {
+            OthelloError::NoMovesForPlayer => JsValue::from_str("AI has no legal moves"),
+            OthelloError::NotYourTurn => JsValue::from_str("It's not the AI's turn"),
+            OthelloError::IllegalMove => JsValue::from_str("AI attempted an illegal move"),
+        })
     }
 }

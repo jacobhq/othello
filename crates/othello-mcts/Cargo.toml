@@ -1,0 +1,20 @@
+[package]
+name = "othello-mcts"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+othello = { path = "../othello" }
+crossbeam = { version = "0.8.4", optional = true }
+dashmap = { version = "7.0.0-rc2", optional = true }
+rand = { version = "0.10.0", optional = true }
+
+[features]
+default = ["sync", "shared"]
+async = ["dep:crossbeam", "dep:dashmap"]
+sync = []
+shared = []
+training = ["dep:rand"]
