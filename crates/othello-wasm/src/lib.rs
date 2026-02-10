@@ -1,7 +1,6 @@
 mod mcts;
 mod model;
 mod neural_net;
-mod tree;
 
 use crate::mcts::mcts_search;
 use crate::neural_net::{ModelType, NeuralNet};
@@ -50,7 +49,7 @@ pub struct WasmGame {
 impl WasmGame {
     /// Create a new standard Othello board.
     #[wasm_bindgen(constructor)]
-    pub async fn new(game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
+    pub fn new(game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
         let game_type = match game_type {
             1 => GameType::PassAndPlay,
             2 => GameType::PlayerVsModel,
@@ -70,22 +69,18 @@ impl WasmGame {
             ));
         }
 
-        debug!("Initialising model");
-
         let model = if game_type == GameType::PlayerVsModel {
             Some(match &device_type.unwrap() {
                 DeviceType::Ndarray => {
-                    ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default()).await)
+                    ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default()))
                 }
                 DeviceType::WebGpu => {
-                    ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default()).await)
+                    ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default()))
                 }
             })
         } else {
             None
         };
-
-        debug!("Got model as variable");
 
         Ok(WasmGame {
             inner: OthelloGame::new(),

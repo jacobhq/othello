@@ -4,6 +4,6 @@ fn main() {
     ModelGen::new()
         .input("src/model/demo.onnx")
         .out_dir("model/")
-        .embed_states(false)  // Don't embed - we'll load via BinBytesRecorder
+        .embed_states(true)
         .run_from_script();
 }
