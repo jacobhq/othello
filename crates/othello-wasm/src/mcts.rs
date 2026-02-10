@@ -162,9 +162,11 @@ const VIRTUAL_LOSS: f32 = 1.0;
 
 /// Information about a leaf reached during batched selection.
 struct LeafInfo {
-    /// The path from root to this leaf (for backprop + virtual-loss revert).
-    /// Stores (node_id, sign) so we can revert with the exact same sign.
-    path: Vec<(NodeId, f32)>,
+    /// The path from root to this leaf (for backprop).
+    path: Vec<NodeId>,
+    /// The virtual loss actions taken (node_id, sign).
+    /// Used to revert virtual losses with the exact same sign.
+    vl_actions: Vec<(NodeId, f32)>,
     /// The simulated game state at this leaf.
     state: OthelloGame,
     /// The current player at this leaf.
@@ -191,7 +193,9 @@ pub async fn mcts_search_js_batched(
         tree.expand(tree.root(), &[(64, 1.0)]);
     } else {
         // Bootstrap: evaluate root with a single call (batch of 1)
-        let results = js_evaluate_batch(eval_fn, &[(game.clone(), player)]).await.unwrap();
+        let results = js_evaluate_batch(eval_fn, &[(game.clone(), player)])
+            .await
+            .unwrap();
         let (policy, _) = &results[0];
         tree.expand(tree.root(), policy);
     }
@@ -202,8 +206,8 @@ pub async fn mcts_search_js_batched(
         // --- Selection phase: collect up to BATCH_SIZE leaves ---
         let mut leaves: Vec<LeafInfo> = Vec::with_capacity(BATCH_SIZE);
         // Terminal states resolved immediately (no NN needed)
-        // Stores (path, value_black). Path includes signs.
-        let mut terminal_paths: Vec<(Vec<(NodeId, f32)>, f32)> = Vec::new();
+        // Stores (path, vl_actions, value_black).
+        let mut terminal_paths: Vec<(Vec<NodeId>, Vec<(NodeId, f32)>, f32)> = Vec::new();
 
         for _ in 0..BATCH_SIZE {
             if sims_done >= num_simulations {
@@ -212,28 +216,22 @@ pub async fn mcts_search_js_batched(
             sims_done += 1;
 
             let mut path = Vec::new();
+            let mut vl_actions = Vec::new();
             let mut sim_state = game.clone();
             let mut node_id = tree.root();
 
             loop {
+                path.push(node_id);
+                // Sign for the current player at this node
                 let sign = if sim_state.current_turn == Color::Black {
                     1.0
                 } else {
                     -1.0
                 };
 
-                // Add to path BEFORE checking game over, so we can revert virtual losses later.
-                // Note: we add virtual loss to this node below.
-                path.push((node_id, sign));
-
-
-
-                // Apply virtual loss to discourage other paths from re-visiting
-                tree.add_virtual_loss(node_id, VIRTUAL_LOSS, sign);
-
                 if sim_state.game_over() {
                     let value_black = sim_state.terminal_value(Color::Black);
-                    terminal_paths.push((path, value_black));
+                    terminal_paths.push((path, vl_actions, value_black));
                     break;
                 }
 
@@ -242,13 +240,23 @@ pub async fn mcts_search_js_batched(
 
                 if moves.is_empty() {
                     let pass_action = 64;
+                    // For pass, we just need a specific child
                     let child = tree.get_or_create_child(node_id, pass_action, 1.0);
+                    
+                    // Apply virtual loss to the child using current player's sign
+                    tree.add_virtual_loss(child, VIRTUAL_LOSS, sign);
+                    vl_actions.push((child, sign));
+
                     sim_state.mcts_play(Move::Pass, current_player).ok();
                     node_id = child;
                     continue;
                 }
 
                 if let Some((action, child_id)) = tree.select_child(node_id, c_puct, sign) {
+                    // Apply virtual loss to the child using current player's sign
+                    tree.add_virtual_loss(child_id, VIRTUAL_LOSS, sign);
+                    vl_actions.push((child_id, sign));
+
                     let (row, col) = (action / 8, action % 8);
                     sim_state
                         .mcts_play(Move::Move(row, col), current_player)
@@ -258,6 +266,7 @@ pub async fn mcts_search_js_batched(
                     // Unexpanded leaf — queue for batch evaluation
                     leaves.push(LeafInfo {
                         path,
+                        vl_actions,
                         state: sim_state,
                         player: current_player,
                         node_id,
@@ -268,13 +277,12 @@ pub async fn mcts_search_js_batched(
         }
 
         // --- Handle terminal states immediately ---
-        for (path, value_black) in &terminal_paths {
-            // Revert virtual losses then backprop real value
-            let node_ids: Vec<NodeId> = path.iter().map(|(id, _)| *id).collect();
-            for &(nid, sign) in path.iter() {
+        for (path, vl_actions, value_black) in &terminal_paths {
+            // Revert virtual losses
+            for &(nid, sign) in vl_actions.iter() {
                 tree.revert_virtual_loss(nid, VIRTUAL_LOSS, sign);
             }
-            tree.backprop(&node_ids, *value_black);
+            tree.backprop(path, *value_black);
         }
 
         if leaves.is_empty() {
@@ -282,10 +290,8 @@ pub async fn mcts_search_js_batched(
         }
 
         // --- Batch evaluation ---
-        let inputs: Vec<(OthelloGame, Color)> = leaves
-            .iter()
-            .map(|l| (l.state.clone(), l.player))
-            .collect();
+        let inputs: Vec<(OthelloGame, Color)> =
+            leaves.iter().map(|l| (l.state.clone(), l.player)).collect();
 
         let results = js_evaluate_batch(eval_fn, &inputs).await.unwrap();
 
@@ -293,9 +299,8 @@ pub async fn mcts_search_js_batched(
         for (leaf, (policy, value)) in leaves.iter().zip(results.iter()) {
             tree.expand(leaf.node_id, policy);
 
-            // Revert virtual losses along path using stored signs
-            let node_ids: Vec<NodeId> = leaf.path.iter().map(|(id, _)| *id).collect();
-            for &(nid, sign) in leaf.path.iter() {
+            // Revert virtual losses
+            for &(nid, sign) in leaf.vl_actions.iter() {
                 tree.revert_virtual_loss(nid, VIRTUAL_LOSS, sign);
             }
 
@@ -306,7 +311,7 @@ pub async fn mcts_search_js_batched(
                 -1.0
             };
             let value_black = value * leaf_sign;
-            tree.backprop(&node_ids, value_black);
+            tree.backprop(&leaf.path, value_black);
         }
     }
 

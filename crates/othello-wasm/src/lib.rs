@@ -37,7 +37,7 @@ pub enum DeviceType {
     OnnxWeb = 3,
 }
 
-const AI_SIMS: u32 = 800;
+const AI_SIMS: u32 = 2000;
 
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]

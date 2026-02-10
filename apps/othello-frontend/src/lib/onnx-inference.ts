@@ -22,7 +22,7 @@ export async function createEvaluator(): Promise<
         }
         eps.push("wasm");
 
-        session = await ort.InferenceSession.create("/demo.onnx", {
+        session = await ort.InferenceSession.create("/ibm_full_train_17_othello_net_epoch_006.onnx", {
             executionProviders: eps,
         });
 
@@ -73,7 +73,7 @@ export async function createBatchEvaluator(): Promise<
         }
         eps.push("wasm");
 
-        session = await ort.InferenceSession.create("/demo.onnx", {
+        session = await ort.InferenceSession.create("/ibm_full_train_15_othello_net_epoch_006.onnx", {
             executionProviders: eps,
         });
 
