@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 othello = { path = "../othello" }
 othello-mcts = { path = "../othello-mcts" }
 wasm-bindgen = "0.2.105"
+js-sys = "0.3"
 serde-wasm-bindgen = "0.6.5"
 wasm-bindgen-futures = "0.4.58"
 burn = { git = "https://github.com/tracel-ai/burn", features = ["ndarray", "webgpu"] }

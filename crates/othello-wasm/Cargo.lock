@@ -4444,6 +4444,7 @@ dependencies = [
  "burn-store 0.21.0 (git+https://github.com/tracel-ai/burn)",
  "console_error_panic_hook",
  "getrandom 0.3.4",
+ "js-sys",
  "othello",
  "othello-mcts",
  "serde-wasm-bindgen",
