@@ -2,7 +2,7 @@ mod mcts;
 mod model;
 mod neural_net;
 
-use crate::mcts::{mcts_search, mcts_search_js};
+use crate::mcts::{mcts_search, mcts_search_js_batched};
 use crate::neural_net::{ModelType, NeuralNet};
 use burn::backend::wgpu::WgpuDevice;
 use burn::tensor::Device;
@@ -37,7 +37,7 @@ pub enum DeviceType {
     OnnxWeb = 3,
 }
 
-const AI_SIMS: u32 = 400;
+const AI_SIMS: u32 = 800;
 
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]
@@ -223,7 +223,7 @@ impl WasmGame {
         }
 
         let ai_move = if let Some(eval_fn) = &self.eval_fn {
-            mcts_search_js(eval_fn, &self.inner, self.inner.current_turn, AI_SIMS).await
+            mcts_search_js_batched(eval_fn, &self.inner, self.inner.current_turn, AI_SIMS).await
         } else if let Some(model) = &self.model {
             match model {
                 ModelType::WithNdArrayBackend(model) => {

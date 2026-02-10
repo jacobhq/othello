@@ -4,7 +4,7 @@ import { WasmGame } from "@wasm/othello_wasm";
 import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { createEvaluator } from "@/lib/onnx-inference";
+import { createBatchEvaluator } from "@/lib/onnx-inference";
 import {
     Dialog,
     DialogClose,
@@ -26,7 +26,7 @@ export default function DemoBoard() {
     const [score, setScore] = useState<[number, number]>([0, 0]);
     const [gameOver, setGameOver] = useState(false);
     const [firstMove, setFirstMove] = useState(true);
-    const evaluatorRef = useRef<((input: Float32Array) => Promise<{ policy: Float32Array, value: number }>) | null>(null);
+    const evaluatorRef = useRef<((inputs: Float32Array, batchSize: number) => Promise<{ policies: Float32Array, values: Float32Array }>) | null>(null);
 
     useEffect(() => {
         initialiseGame()
@@ -38,7 +38,7 @@ export default function DemoBoard() {
 
         // Load ONNX evaluator if not already loaded
         if (!evaluatorRef.current) {
-            evaluatorRef.current = await createEvaluator();
+            evaluatorRef.current = await createBatchEvaluator();
         }
         g.set_evaluator(evaluatorRef.current);
 
