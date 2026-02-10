@@ -1,4 +1,4 @@
-import {createFileRoute, Link, notFound, useParams} from '@tanstack/react-router'
+import { createFileRoute, Link, notFound, useParams } from '@tanstack/react-router'
 import Board from "@/components/game/board.tsx";
 import {
   Breadcrumb,
@@ -7,16 +7,16 @@ import {
   BreadcrumbList, BreadcrumbPage,
   BreadcrumbSeparator
 } from "@/components/ui/breadcrumb.tsx";
-import {SidebarTrigger} from "@/components/ui/sidebar.tsx";
-import {Separator} from "@/components/ui/separator.tsx";
-import {Button} from "@/components/ui/button.tsx";
-import {Flag, Settings2} from "lucide-react";
-import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover.tsx";
-import {ButtonGroup} from "@/components/ui/button-group.tsx";
-import {PopoverClose} from "@radix-ui/react-popover";
-import {useEffect, useState} from "react";
-import {WasmGame} from "@wasm/othello_wasm";
-import {toast} from "sonner";
+import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
+import { Separator } from "@/components/ui/separator.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { Flag, Settings2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { ButtonGroup } from "@/components/ui/button-group.tsx";
+import { PopoverClose } from "@radix-ui/react-popover";
+import { useEffect, useState } from "react";
+import { WasmGame } from "@wasm/othello_wasm";
+import { toast } from "sonner";
 import Score from "@/components/game/score.tsx";
 import {
   AlertDialog,
@@ -25,9 +25,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog";
-import {getCookie} from "@/lib/utils.ts";
-import {Switch} from "@/components/ui/switch.tsx";
-import {Label} from "@/components/ui/label.tsx";
+import { getCookie } from "@/lib/utils.ts";
+import { Switch } from "@/components/ui/switch.tsx";
+import { Label } from "@/components/ui/label.tsx";
 
 interface ApiGameResponse {
   bitboard_black: string,
@@ -43,7 +43,7 @@ interface ApiGame {
 
 export const Route = createFileRoute('/_dashboard/play/$gameId')({
   component: RouteComponent,
-  loader: async ({params}) => {
+  loader: async ({ params }) => {
     try {
       const res = await fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/games/${params.gameId}`, {
         method: "GET",
@@ -104,7 +104,7 @@ function RouteComponent() {
     localStorage.setItem('show_legal_moves', JSON.stringify(showLegalMoves));
   }, [showLegalMoves]);
 
-  const g = WasmGame.new_from_state(initial_state.bitboard_black, initial_state.bitboard_white, initial_turn);
+  const g = WasmGame.new_from_state(initial_state.bitboard_black, initial_state.bitboard_white, initial_turn, 1, undefined);
   const initialiseGame = () => {
     setGame(g);
     setBoard(g.board());
@@ -164,7 +164,7 @@ function RouteComponent() {
         </AlertDialogHeader>
         <div className="mt-4">
           <Score whiteScore={score[0]}
-                 blackScore={score[1]}/>
+            blackScore={score[1]} />
         </div>
         <AlertDialogFooter>
           <Button asChild>
@@ -176,8 +176,8 @@ function RouteComponent() {
     <header
       className="flex h-16 shrink-0 items-center justify-between gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
       <div className="flex flex-1 items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1"/>
-        <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4"/>
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem className="hidden md:block">
@@ -185,13 +185,13 @@ function RouteComponent() {
                 <Link to="/">Othello</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="hidden md:block"/>
+            <BreadcrumbSeparator className="hidden md:block" />
             <BreadcrumbItem className="hidden md:block">
               <BreadcrumbLink asChild>
                 <Link to="/play">Play</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
-            <BreadcrumbSeparator className="hidden md:block"/>
+            <BreadcrumbSeparator className="hidden md:block" />
             <BreadcrumbItem>
               <BreadcrumbPage>Pass and Play</BreadcrumbPage>
             </BreadcrumbItem>
@@ -215,11 +215,11 @@ function RouteComponent() {
       <div className="hidden sm:flex flex-1 justify-end items-center gap-2 px-4">
         <ButtonGroup>
           <Button disabled={gameOver}
-                  variant="ghost">{currentPlayer == 1 && "Black's" || currentPlayer == 2 && "White's"} turn</Button>
+            variant="ghost">{currentPlayer == 1 && "Black's" || currentPlayer == 2 && "White's"} turn</Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button disabled={gameOver} variant="ghost">
-                <Settings2/> Settings
+                <Settings2 /> Settings
               </Button>
             </PopoverTrigger>
             <PopoverContent>
@@ -237,7 +237,7 @@ function RouteComponent() {
           <Popover>
             <PopoverTrigger asChild>
               <Button disabled={gameOver} variant="ghost">
-                <Flag/> Resign
+                <Flag /> Resign
               </Button>
             </PopoverTrigger>
             <PopoverContent>
@@ -257,7 +257,7 @@ function RouteComponent() {
     </header>
     <div className="flex flex-col 2xl:flex-row gap-6 p-0 w-full h-full">
       <div className="flex items-center justify-center flex-1">
-        <Board board={board} legalMoves={legalMoves} showLegalMoves={showLegalMoves} handleClick={handleClick}/>
+        <Board board={board} legalMoves={legalMoves} showLegalMoves={showLegalMoves} handleClick={handleClick} />
       </div>
     </div>
   </>
