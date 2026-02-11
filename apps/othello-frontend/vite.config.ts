@@ -1,3 +1,4 @@
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import {defineConfig} from "vite"
@@ -8,20 +9,22 @@ import tanstackRouter from "@tanstack/router-plugin/vite";
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    tanstackRouter({
-      target: 'react',
-      autoCodeSplitting: true,
-    }),
-    react(),
-    tailwindcss(),
-    wasm(),
-    topLevelAwait()
-  ],
+  plugins: [tanstackRouter({
+    target: 'react',
+    autoCodeSplitting: true,
+  }), react(), tailwindcss(), wasm(), topLevelAwait(), sentryVitePlugin({
+    org: "jhqcat",
+    project: "othello"
+  })],
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@wasm": path.resolve(__dirname, "./pkg"),
     },
   },
+
+  build: {
+    sourcemap: true
+  }
 })
