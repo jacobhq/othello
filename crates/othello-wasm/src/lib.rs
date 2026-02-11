@@ -1,11 +1,6 @@
 mod mcts;
-mod model;
-mod neural_net;
 
-use crate::mcts::{mcts_search, mcts_search_js_batched};
-use crate::neural_net::{ModelType, NeuralNet};
-use burn::backend::wgpu::WgpuDevice;
-use burn::tensor::Device;
+use crate::mcts::mcts_search_js_batched;
 use tracing::debug;
 use othello::othello_game::{Color, Move, OthelloError, OthelloGame};
 use wasm_bindgen::prelude::*;
@@ -29,14 +24,6 @@ pub enum GameType {
     PlayerVsModel = 2,
 }
 
-#[wasm_bindgen]
-#[repr(u8)]
-pub enum DeviceType {
-    Ndarray = 1,
-    WebGpu = 2,
-    OnnxWeb = 3,
-}
-
 const AI_SIMS: u32 = 2000;
 
 /// JS-facing wrapper around the core Rust OthelloGame.
@@ -44,7 +31,6 @@ const AI_SIMS: u32 = 2000;
 pub struct WasmGame {
     pub(crate) inner: OthelloGame,
     game_type: GameType,
-    pub(crate) model: Option<ModelType>,
     eval_fn: Option<js_sys::Function>,
     human_player: Option<Color>,
 }
@@ -53,44 +39,15 @@ pub struct WasmGame {
 impl WasmGame {
     /// Create a new standard Othello board.
     #[wasm_bindgen(constructor)]
-    pub fn new(game_type: u8, device_type: Option<u8>) -> Result<WasmGame, JsValue> {
+    pub fn new(game_type: u8) -> Result<WasmGame, JsValue> {
         let game_type = match game_type {
             1 => GameType::PassAndPlay,
             2 => GameType::PlayerVsModel,
             _ => return Err(JsValue::from_str("GameType out of range")),
         };
 
-        let device_type = match device_type {
-            Some(1) => Some(DeviceType::Ndarray),
-            Some(2) => Some(DeviceType::WebGpu),
-            Some(3) => Some(DeviceType::OnnxWeb),
-            Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
-            None => None,
-        };
-
-        if device_type.is_none() && game_type == GameType::PlayerVsModel {
-            return Err(JsValue::from_str(
-                "You must specify a DeviceType when playing in PlayerVsModel mode",
-            ));
-        }
-
-        let model = if game_type == GameType::PlayerVsModel {
-            match &device_type.unwrap() {
-                DeviceType::Ndarray => {
-                    Some(ModelType::WithNdArrayBackend(NeuralNet::new(&Default::default())))
-                }
-                DeviceType::WebGpu => {
-                    Some(ModelType::WithWgpuBackend(NeuralNet::new(&WgpuDevice::default())))
-                }
-                DeviceType::OnnxWeb => None, // eval_fn set later via set_evaluator()
-            }
-        } else {
-            None
-        };
-
         Ok(WasmGame {
             inner: OthelloGame::new(),
-            model,
             eval_fn: None,
             game_type,
             human_player: Some(Color::Black),
@@ -104,7 +61,6 @@ impl WasmGame {
         white: u64,
         player: u8,
         game_type: u8,
-        device_type: Option<u8>,
     ) -> Result<WasmGame, JsValue> {
         let color = match player {
             1 => Color::Black,
@@ -118,23 +74,8 @@ impl WasmGame {
             _ => return Err(JsValue::from_str("GameType out of range")),
         };
 
-        let device_type = match device_type {
-            Some(1) => Some(DeviceType::Ndarray),
-            Some(2) => Some(DeviceType::WebGpu),
-            Some(3) => Some(DeviceType::OnnxWeb),
-            Some(_) => return Err(JsValue::from_str("DeviceType out of range")),
-            None => None,
-        };
-
-        if device_type.is_none() && game_type == GameType::PlayerVsModel {
-            return Err(JsValue::from_str(
-                "You must specify a DeviceType when playing in PlayerVsModel mode",
-            ));
-        }
-
         Ok(WasmGame {
             inner: OthelloGame::new_with_state(black, white, color),
-            model: None,
             eval_fn: None,
             game_type,
             human_player: Some(color),
@@ -224,17 +165,8 @@ impl WasmGame {
 
         let ai_move = if let Some(eval_fn) = &self.eval_fn {
             mcts_search_js_batched(eval_fn, &self.inner, self.inner.current_turn, AI_SIMS).await
-        } else if let Some(model) = &self.model {
-            match model {
-                ModelType::WithNdArrayBackend(model) => {
-                    mcts_search(model, &self.inner, self.inner.current_turn, AI_SIMS).await
-                }
-                ModelType::WithWgpuBackend(model) => {
-                    mcts_search(model, &self.inner, self.inner.current_turn, AI_SIMS).await
-                }
-            }
         } else {
-            return Err(JsValue::from_str("No model or evaluator set"));
+            return Err(JsValue::from_str("No evaluator set"));
         };
 
         let player = self.inner.current_turn;

@@ -44,7 +44,7 @@ export function useOthelloGame() {
     const initialiseGame = useCallback(async () => {
         try {
             // DeviceType 3 = OnnxWeb (no burn model loaded), GameType 2 = PlayerVsModel
-            const g = new WasmGame(2, 3);
+            const g = new WasmGame(2);
 
             // Load ONNX evaluator if not already loaded
             if (!evaluatorRef.current) {

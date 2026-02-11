@@ -104,7 +104,7 @@ function RouteComponent() {
     localStorage.setItem('show_legal_moves', JSON.stringify(showLegalMoves));
   }, [showLegalMoves]);
 
-  const g = WasmGame.new_from_state(initial_state.bitboard_black, initial_state.bitboard_white, initial_turn, 1, undefined);
+  const g = WasmGame.new_from_state(initial_state.bitboard_black, initial_state.bitboard_white, initial_turn, 1);
   const initialiseGame = () => {
     setGame(g);
     setBoard(g.board());
