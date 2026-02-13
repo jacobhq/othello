@@ -32,10 +32,10 @@ struct Args {
     /// Number of conv blocks to include in the model
     #[arg(long)]
     model_res_blocks: Option<u32>,
-    /// Initial learning rate (default: 2e-3). Used with --lr-schedule for cosine annealing.
+    /// Initial learning rate. Used with --lr-schedule for cosine annealing.
     #[arg(long, default_value_t = 2e-3)]
     lr_start: f32,
-    /// Final learning rate (default: 1e-5). Used with --lr-schedule for cosine annealing.
+    /// Final learning rate. Used with --lr-schedule for cosine annealing.
     #[arg(long, default_value_t = 1e-5)]
     lr_end: f32,
     /// Learning rate schedule: 'cosine' (default) or 'constant'
@@ -58,20 +58,22 @@ struct Args {
     skip_eval: bool,
     /// Disable reduced Dirichlet noise for early iterations (always use eps=0.25)
     #[arg(long, default_value_t = false)]
+    #[deprecated]
     no_early_noise_reduction: bool,
     /// Skip loading checkpoint for the first iteration when resuming (start fresh but save checkpoints for subsequent iterations)
     #[arg(long, default_value_t = false)]
+    #[deprecated]
     skip_initial_checkpoint: bool,
     /// Enable model gating (only promote models that beat current best)
     #[arg(long, default_value_t = false)]
     enable_gating: bool,
-    /// Win rate threshold for model promotion (default: 0.55 = 55%)
+    /// Win rate threshold for model promotion
     #[arg(long, default_value_t = 0.55)]
     gating_threshold: f64,
-    /// Minimum win rate against random to allow promotion (default: 0.55 = 55%)
-    #[arg(long, default_value_t = 0.55)]
+    /// Minimum win rate against random to allow promotion
+    #[arg(long, default_value_t = 0.9)]
     min_random_win_rate: f64,
-    /// Number of GPUs to use for training (default: 2). Uses torchrun for >1, plain python for 1.
+    /// Number of GPUs to use for training. Uses torchrun for >1, plain python for 1.
     #[arg(long, default_value_t = 2)]
     num_gpus: u32,
 }
@@ -116,13 +118,6 @@ fn main() {
     if !args.skip_eval {
         std::fs::create_dir_all(&evals_dir).expect("Failed to create evals directory");
     }
-
-    // Path to the random/initial model (epoch 0) for baseline comparison
-    // Always use model 0 as the baseline, even when resuming
-    let _baseline_model = format!(
-        "../../packages/othello-training/models/{}_0_othello_net_epoch_000.onnx",
-        &args.prefix
-    );
 
     // Track the "best" model for gating - initially the starting model
     // When gating is enabled, self-play uses best_model instead of latest
@@ -435,10 +430,6 @@ fn main() {
                 // to start training on data from a trained model to improve.
                 if is_first_trained {
                     println!("✅ First trained model PROMOTED: idx {} (mandatory bootstrap)", model_idx + 1);
-                    if !passes_vs_random {
-                        println!("   ⚠️  Note: Only {:.1}% vs random - expected to improve with more iterations", 
-                            vs_random_result.as_ref().map(|r| r.win_rate * 100.0).unwrap_or(0.0));
-                    }
                     best_model_idx = model_idx + 1;
                 } else if i > 0 {
                     if passes_vs_prev && passes_vs_random {
@@ -464,7 +455,7 @@ fn main() {
     println!("=== Training Complete ===");
     println!("\nConfig: {:?}", args);
 
-    // Handle emptiness in cas eval was skipped
+    // Handle emptiness in case eval was skipped
     if !eval_results.is_empty() {
         println!("\n--- Evaluation Summary ---");
         for result in &eval_results {

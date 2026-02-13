@@ -12,7 +12,7 @@ use crate::neural_net::{load_model, nn_eval_batch};
 use anyhow::Result;
 use othello::othello_game::{Color, Move, OthelloGame};
 use serde::Serialize;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Result of an evaluation match
 #[derive(Debug, Clone, Serialize)]
@@ -111,6 +111,7 @@ fn play_eval_game(
                 game.mcts_play(Move::Move(r, c), current_player).unwrap();
             } else {
                 // Fallback to first legal move
+                warn!("No best move available, falling back to first");
                 let (r, c) = legal_moves[0];
                 game.mcts_play(Move::Move(r, c), current_player).unwrap();
             }
@@ -412,12 +413,14 @@ pub fn evaluate_vs_random(
         sims_per_move
     );
 
+    // Initialise parallel data structures
     let model_queue = EvalQueue::new();
     let _gpu_worker = start_eval_gpu_worker(model_queue.gpu_handle(), model_path, 256);
 
     let num_parallel = num_cpus::get_physical();
     info!("Running {} parallel evaluation games", num_parallel);
 
+    // Use atomic counters for thread-safe updates
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
@@ -426,6 +429,7 @@ pub fn evaluate_vs_random(
     let draws = Arc::new(AtomicU32::new(0));
     let completed = Arc::new(AtomicU32::new(0));
 
+    // Initialise channel and spawn game threads
     let mut handles = Vec::new();
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -466,12 +470,14 @@ pub fn evaluate_vs_random(
 
         handles.push(handle);
 
+        // Limit parallelism - wait if we've spawned enough threads
         if handles.len() >= num_parallel {
             let _ = rx.recv();
             handles.retain(|h| !h.is_finished());
         }
     }
 
+    // Wait for remaining threads
     for handle in handles {
         let _ = handle.join();
     }
