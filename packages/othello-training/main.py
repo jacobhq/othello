@@ -507,56 +507,6 @@ def train(
 
     return training_stats
 
-def export_dummy_model(prefix, device="cpu"):
-    """
-    Exports a tiny ONNX model that outputs:
-      - uniform policy over 64 moves
-      - zero value
-    Useful for iteration 0 of self-play when no trained model exists.
-    """
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-    import os
-
-    class TinyOthelloNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.conv = nn.Conv2d(2, 16, 3, padding=1)
-            self.policy_head = nn.Conv2d(16, 1, 1)
-            self.value_head = nn.Linear(16 * 8 * 8, 1)
-
-        def forward(self, x):
-            h = F.relu(self.conv(x))
-            p = self.policy_head(h).view(-1)         # flatten to (64,)
-            v = torch.tensor([0.0], device=x.device) # always 0
-            return F.log_softmax(p, dim=0), v
-
-    model = TinyOthelloNet().to(device)
-    model.eval()
-
-    dummy_input = torch.zeros(1, 2, 8, 8, device=device)
-    output_path = f"{prefix}_othello_net_epoch_000.onnx"
-    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
-
-    torch.onnx.export(
-        model,
-        dummy_input,
-        output_path,
-        input_names=["board"],
-        output_names=["policy", "value"],
-        dynamic_axes={
-            "board": {0: "batch"},
-            "policy": {0: "batch"},
-            "value": {0: "batch"},
-        },
-        opset_version=17,
-        dynamo=False
-    )
-
-    ddp_print(f"Dummy model exported to {output_path}")
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", required=False,
