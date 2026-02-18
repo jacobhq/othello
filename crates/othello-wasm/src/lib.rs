@@ -154,6 +154,7 @@ impl WasmGame {
         self.eval_fn = Some(eval_fn);
     }
 
+    /// Have the AI play the next move
     pub async fn play_ai_move(&mut self) -> Result<(), JsValue> {
         if self.game_type != GameType::PlayerVsModel {
             return Err(JsValue::from_str("This is not an AI game"));

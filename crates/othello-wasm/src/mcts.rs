@@ -54,7 +54,7 @@ pub async fn mcts_search_js_batched(
     let mut sims_done: u32 = 0;
 
     while sims_done < num_simulations {
-        // --- Selection phase: collect up to BATCH_SIZE leaves ---
+        // Selection phase: collect up to BATCH_SIZE leaves
         let mut leaves: Vec<LeafInfo> = Vec::with_capacity(BATCH_SIZE);
         // Terminal states resolved immediately (no NN needed)
         // Stores (path, vl_actions, value_black).
@@ -127,7 +127,7 @@ pub async fn mcts_search_js_batched(
             }
         }
 
-        // --- Handle terminal states immediately ---
+        // Handle terminal states immediately
         for (path, vl_actions, value_black) in &terminal_paths {
             // Revert virtual losses
             for &(nid, sign) in vl_actions.iter() {
@@ -140,13 +140,13 @@ pub async fn mcts_search_js_batched(
             continue;
         }
 
-        // --- Batch evaluation ---
+        // Batch evaluation
         let inputs: Vec<(OthelloGame, Color)> =
             leaves.iter().map(|l| (l.state.clone(), l.player)).collect();
 
         let results = js_evaluate_batch(eval_fn, &inputs).await.unwrap();
 
-        // --- Expand & backprop ---
+        // Expand & backprop
         for (leaf, (policy, value)) in leaves.iter().zip(results.iter()) {
             tree.expand(leaf.node_id, policy);
 

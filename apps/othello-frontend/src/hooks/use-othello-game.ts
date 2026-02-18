@@ -27,7 +27,7 @@ export function useOthelloGame() {
     const [state, setState] = useState<GameState>(INITIAL_STATE);
     const [firstMove, setFirstMove] = useState(true);
 
-    // Check if evaluator is initialized
+    // Check if evaluator is initialised
     const evaluatorRef = useRef<((inputs: Float32Array, batchSize: number) => Promise<{ policies: Float32Array, values: Float32Array }>) | null>(null);
 
     const updateGameState = useCallback((g: WasmGame, aiThinking: boolean = false) => {
@@ -43,7 +43,7 @@ export function useOthelloGame() {
 
     const initialiseGame = useCallback(async () => {
         try {
-            // DeviceType 3 = OnnxWeb (no burn model loaded), GameType 2 = PlayerVsModel
+            // GameType 2 = PlayerVsModel
             const g = new WasmGame(2);
 
             // Load ONNX evaluator if not already loaded
@@ -100,18 +100,18 @@ export function useOthelloGame() {
     useEffect(() => {
         if (!game || state.gameOver) return;
 
-        // 1. AI Turn
+        // AI Turn
         if (state.currentPlayer === 2 && !state.isAiThinking) {
             const aiPromise = playAiMove();
             toast.promise(aiPromise, {
-                position: "bottom-center",
+                position: "bottom-right",
                 loading: "AI is thinking",
                 success: "AI played. Your turn!",
                 error: 'Error',
             });
         }
 
-        // 2. Human Auto-Pass
+        // Human Auto-Pass
         else if (state.currentPlayer === 1 && state.legalMoves.length === 0) {
             const timer = setTimeout(() => {
                 toast("No legal moves available. Passing turn to AI...");
