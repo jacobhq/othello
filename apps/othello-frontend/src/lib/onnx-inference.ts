@@ -10,47 +10,50 @@ let session: ort.InferenceSession | null = null;
  * Output: { policies: Float32Array(batchSize * 64), values: Float32Array(batchSize) }
  */
 export async function createBatchEvaluator(): Promise<
-    (inputs: Float32Array, batchSize: number) => Promise<{ policies: Float32Array; values: Float32Array }>
+  (
+    inputs: Float32Array,
+    batchSize: number,
+  ) => Promise<{ policies: Float32Array; values: Float32Array }>
 > {
-    if (!session) {
-        // Load ORT runtime files from CDN
-        ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.1/dist/";
-
-        // Try WebGPU first, fall back to WASM
-        const eps: ort.InferenceSession.ExecutionProviderConfig[] = [];
-        if ("gpu" in navigator) {
-            console.log("[ORT] WebGPU available, trying webgpu EP");
-            eps.push("webgpu");
-        }
-        eps.push("wasm");
-
-        session = await ort.InferenceSession.create("/othello_net_sm_14_othello_net_epoch_004.onnx", {
-            executionProviders: eps,
-        });
-
-        console.log("[ORT] Session created (batch)");
+  if (!session) {
+    // Try WebGPU first, fall back to WASM
+    const eps: ort.InferenceSession.ExecutionProviderConfig[] = [];
+    if ("gpu" in navigator) {
+      console.log("[ORT] WebGPU available, trying webgpu EP");
+      eps.push("webgpu");
     }
+    eps.push("wasm");
 
-    const sess = session;
+    session = await ort.InferenceSession.create(
+      "/othello_net_sm_14_othello_net_epoch_004.onnx",
+      {
+        executionProviders: eps,
+      },
+    );
 
-    return async (inputs: Float32Array, batchSize: number) => {
-        // Input shape: [1, 2, 8, 8]
-        const inputTensor = new ort.Tensor("float32", inputs, [batchSize, 2, 8, 8]);
+    console.log("[ORT] Session created (batch)");
+  }
 
-        const feeds: Record<string, ort.Tensor> = {};
-        const inputName = sess.inputNames[0];
-        feeds[inputName] = inputTensor;
+  const sess = session;
 
-        const results = await sess.run(feeds);
+  return async (inputs: Float32Array, batchSize: number) => {
+    // Input shape: [1, 2, 8, 8]
+    const inputTensor = new ort.Tensor("float32", inputs, [batchSize, 2, 8, 8]);
 
-        // Get output names from the session
-        const outputNames = sess.outputNames;
-        const policyOutput = results[outputNames[0]];
-        const valueOutput = results[outputNames[1]];
+    const feeds: Record<string, ort.Tensor> = {};
+    const inputName = sess.inputNames[0];
+    feeds[inputName] = inputTensor;
 
-        return {
-            policies: new Float32Array(policyOutput.data as Float32Array),
-            values: new Float32Array(valueOutput.data as Float32Array),
-        };
+    const results = await sess.run(feeds);
+
+    // Get output names from the session
+    const outputNames = sess.outputNames;
+    const policyOutput = results[outputNames[0]];
+    const valueOutput = results[outputNames[1]];
+
+    return {
+      policies: new Float32Array(policyOutput.data as Float32Array),
+      values: new Float32Array(valueOutput.data as Float32Array),
     };
+  };
 }
