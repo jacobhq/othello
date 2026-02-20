@@ -4,10 +4,10 @@ import DemoBoard from "@/components/game/demo-board";
 
 export default function Hero() {
   return (
-    <section className="py-16">
+    <section>
       <div className="relative z-10 mx-auto w-full max-w-2xl px-6 lg:px-0">
         <div className="relative text-center mb-12">
-          <h1 className="mx-auto mt-16 max-w-xl text-balance text-5xl font-medium font-serif">
+          <h1 className="mx-auto mt-32 max-w-xl text-balance text-5xl font-medium font-serif">
             Othello
           </h1>
 
@@ -34,7 +34,7 @@ export default function Hero() {
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
           <p className="text-muted-foreground text-center font-serif">
-            &copy; 2025 Jacob Marshall
+            &copy; 2026 Jacob Marshall
           </p>
         </div>
       </div>
