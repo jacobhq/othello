@@ -23,7 +23,7 @@ export default function DemoBoard() {
     gameOver,
     onHumanMove,
     resetGame,
-  } = useOthelloGame();
+  } = useOthelloGame(2);
 
   return (
     <>

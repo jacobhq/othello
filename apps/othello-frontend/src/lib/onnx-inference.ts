@@ -9,12 +9,15 @@ let session: ort.InferenceSession | null = null;
  * Input:  Float32Array of length batchSize * 128 (each board = 2×8×8)
  * Output: { policies: Float32Array(batchSize * 64), values: Float32Array(batchSize) }
  */
-export async function createBatchEvaluator(): Promise<
+export async function createBatchEvaluator(
+  aiUrl?: string,
+): Promise<
   (
     inputs: Float32Array,
     batchSize: number,
   ) => Promise<{ policies: Float32Array; values: Float32Array }>
 > {
+  aiUrl ??= "/othello_net_sm_14_othello_net_epoch_004.onnx";
   if (!session) {
     // Try WebGPU first, fall back to WASM
     const eps: ort.InferenceSession.ExecutionProviderConfig[] = [];
@@ -24,14 +27,15 @@ export async function createBatchEvaluator(): Promise<
     }
     eps.push("wasm");
 
-    session = await ort.InferenceSession.create(
-      "/othello_net_sm_14_othello_net_epoch_004.onnx",
-      {
-        executionProviders: eps,
-      },
-    );
+    session = await ort.InferenceSession.create(aiUrl, {
+      executionProviders: eps,
+    });
 
     console.log("[ORT] Session created (batch)");
+  } else {
+    console.log(
+      "Session already exists, not creating new one with URL: " + aiUrl,
+    );
   }
 
   const sess = session;

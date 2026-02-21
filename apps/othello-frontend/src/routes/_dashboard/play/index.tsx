@@ -50,12 +50,11 @@ interface PlayMode {
 
 const playModes: PlayMode[] = [
   {
-    icon: Zap,
-    title: "Play Online",
-    description: "Play vs a person of similar skill",
-    color: "yellow",
-    id: "play_online",
-    disabled: true,
+    icon: UserPlus,
+    title: "Pass and Play",
+    description: "Play locally with a friend on the same device",
+    color: "green",
+    id: "pass_and_play",
   },
   {
     icon: Bot,
@@ -63,6 +62,13 @@ const playModes: PlayMode[] = [
     description: "Challenge a bot from Easy to Master",
     color: "blue",
     id: "play_bots",
+  },
+  {
+    icon: Zap,
+    title: "Play Online",
+    description: "Play vs a person of similar skill",
+    color: "yellow",
+    id: "play_online",
     disabled: true,
   },
   {
@@ -72,13 +78,6 @@ const playModes: PlayMode[] = [
     color: "pink",
     id: "play_friend",
     disabled: true,
-  },
-  {
-    icon: UserPlus,
-    title: "Pass and Play",
-    description: "Play locally with a friend on the same device",
-    color: "green",
-    id: "pass_and_play",
   },
 ];
 
@@ -190,7 +189,7 @@ function RouteComponent() {
               <FieldSet>
                 <RadioGroup
                   value={gameMode}
-                  onChange={(e: any) => setGameMode(e.target.value)}
+                  onValueChange={(e) => setGameMode(e)}
                   defaultValue="pass_and_play"
                   name="game_type"
                 >
