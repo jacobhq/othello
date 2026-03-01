@@ -1,0 +1,44 @@
+---
+import Layout from "../layouts/Layout.astro"
+
+import DemoBoard from "@/components/game/demo-board";
+import {Button} from "@/components/ui/button";
+---
+
+<Layout>
+    <section>
+        <div class="relative z-10 mx-auto w-full max-w-2xl px-6 lg:px-0">
+            <div class="relative text-center mb-12">
+                <h1 class="mx-auto mt-32 max-w-xl text-balance text-5xl font-medium font-serif">
+                    Othello
+                </h1>
+
+                <p class="text-muted-foreground mx-auto mb-6 mt-4 text-balance text-xl font-serif">
+                    Become extraordinarily focused with a strategy game that is elegant,
+                    simple, and fun.
+                </p>
+
+                <div class="flex flex-col items-center gap-2 *:w-full sm:flex-row sm:justify-center sm:*:w-auto">
+                    <Button>
+                        <a href="/auth/signup">
+                            <span class="text-nowrap">Create Account</span>
+                        </a>
+                    </Button>
+                    <Button variant="ghost">
+                        <a href="/auth/login">
+                            <span class="text-nowrap">Sign In</span>
+                        </a>
+                    </Button>
+                </div>
+            </div>
+
+            <DemoBoard client:load />
+
+            <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
+                <p class="text-muted-foreground text-center font-serif">
+                    &copy; 2026 Jacob Marshall
+                </p>
+            </div>
+        </div>
+    </section>
+</Layout>
