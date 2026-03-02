@@ -16,9 +16,9 @@ interface GameState {
 }
 
 const INITIAL_STATE: GameState = {
-    board: [],
+    board: Array(8).fill(null).map(() => Array(8).fill(0)),
     legalMoves: [],
-    score: [0, 0],
+    score: [2, 2],
     currentPlayer: 1, // Black starts
     gameOver: false,
     isAiThinking: false,
@@ -67,7 +67,9 @@ export function useOthelloGame() {
 
     // Initial load
     useEffect(() => {
-        initialiseGame();
+        if (typeof window !== "undefined") {
+            initialiseGame();
+        }
     }, [initialiseGame]);
 
     const playAiMove = useCallback(async () => {
