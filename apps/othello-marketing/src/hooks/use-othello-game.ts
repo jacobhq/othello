@@ -1,5 +1,3 @@
-console.log("useOthelloGame loaded");
-
 import { useRef, useState, useEffect, useCallback } from "react";
 import type { WasmGame as WasmGameType } from "@wasm/othello_wasm";
 import { createBatchEvaluator } from "@/lib/onnx-inference";

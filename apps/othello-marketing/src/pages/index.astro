@@ -3,6 +3,7 @@ import Layout from "../layouts/Layout.astro"
 
 import DemoBoard from "@/components/game/demo-board";
 import {Button} from "@/components/ui/button";
+import ButtonLink from "@/components/ui/button-link.astro";
 ---
 
 <Layout>
@@ -19,16 +20,8 @@ import {Button} from "@/components/ui/button";
                 </p>
 
                 <div class="flex flex-col items-center gap-2 *:w-full sm:flex-row sm:justify-center sm:*:w-auto">
-                    <Button>
-                        <a href="/auth/signup">
-                            <span class="text-nowrap">Create Account</span>
-                        </a>
-                    </Button>
-                    <Button variant="ghost">
-                        <a href="/auth/login">
-                            <span class="text-nowrap">Sign In</span>
-                        </a>
-                    </Button>
+                    <ButtonLink href="/auth/signup">Create Account</ButtonLink>
+                    <ButtonLink href="/auth/login" variant="ghost">Sign In</ButtonLink>
                 </div>
             </div>
 

@@ -1,4 +1,3 @@
-console.log("demo-board loaded");
 import Counter from "@/components/game/counter.tsx";
 import Score from "@/components/game/score.tsx";
 import { Button } from "@/components/ui/button";
