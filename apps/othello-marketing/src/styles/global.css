@@ -4,7 +4,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@variant dark (@media (prefers-color-scheme: dark));
+
 @theme inline {
+    --font-serif: "Newsreader Variable", serif;
+    --font-sans: "Inter Variable", sans-serif;
     --radius-sm: calc(var(--radius) - 4px);
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
