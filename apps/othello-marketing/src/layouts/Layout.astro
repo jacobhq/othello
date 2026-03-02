@@ -1,0 +1,53 @@
+---
+import "@fontsource-variable/newsreader";
+import "@fontsource-variable/inter";
+import newsreaderWoff2 from '@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2?url';
+import interWoff2 from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import "../styles/global.css";
+import { Toaster } from "sonner";
+---
+
+<script is:inline>
+    const getThemePreference = () => {
+        if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
+            return localStorage.getItem('theme');
+        }
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    };
+    const isDark = getThemePreference() === 'dark';
+    document.documentElement.classList[isDark ? 'add' : 'remove']('dark');
+
+    if (typeof localStorage !== 'undefined') {
+        const observer = new MutationObserver(() => {
+            const isDark = document.documentElement.classList.contains('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    }
+</script>
+
+<html lang="en">
+    <head>
+        <title>Play Othello online for free - Othello by @jhqcat</title>
+        <meta name="description" content="Play Othello online for free with other players or AI opponent — it's like Chess.com but for Othello." />
+        <meta name="author" content="Jacob Marshall (@jhqcat)">
+        <meta name="keywords" content="othello, reversi, jacob, glyn" />
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" href="/icon.png" />
+        <link
+          rel="preload"
+          href="/othello_net_sm_14_othello_net_epoch_004.onnx"
+          as="fetch"
+          crossorigin
+        />
+        <link rel="preload" as="font" type="font/woff2" href={newsreaderWoff2} crossorigin="anonymous" />
+        <link rel="preload" as="font" type="font/woff2" href={interWoff2} crossorigin="anonymous"/>
+    </head>
+    <body>
+        <main class="p-8">
+            <slot />
+            <Toaster client:idle />
+        </main>
+    </body>
+</html>

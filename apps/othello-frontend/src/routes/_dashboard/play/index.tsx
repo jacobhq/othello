@@ -63,7 +63,7 @@ const playModes: PlayMode[] = [
     description: "Challenge a bot from Easy to Master",
     color: "blue",
     id: "play_bots",
-    disabled: true,
+    disabled: false,
   },
   {
     icon: Users,

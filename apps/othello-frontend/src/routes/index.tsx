@@ -4,6 +4,26 @@ import type { User } from "@/lib/user.ts";
 import posthog from "posthog-js";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      {
+        title: "Othello - Play for free online",
+      },
+      {
+        name: "description",
+        content:
+          "Play Othello against friends, and against the computer, all completely for free",
+      },
+      {
+        name: "keywords",
+        content: "othello, reversi, jacob, glyn",
+      },
+      {
+        name: "author",
+        content: "Jacob Marshall",
+      },
+    ],
+  }),
   component: Index,
   loader: async () => {
     const res = await fetch(`${import.meta.env.VITE_PUBLIC_API_URL}/api/user`, {
