@@ -1,5 +1,7 @@
+console.log("useOthelloGame loaded");
+
 import { useRef, useState, useEffect, useCallback } from "react";
-import { WasmGame } from "@wasm/othello_wasm";
+import type { WasmGame as WasmGameType } from "@wasm/othello_wasm";
 import { createBatchEvaluator } from "@/lib/onnx-inference";
 import { toast } from "sonner";
 import posthog from "posthog-js";
@@ -23,14 +25,14 @@ const INITIAL_STATE: GameState = {
 };
 
 export function useOthelloGame() {
-    const [game, setGame] = useState<WasmGame | null>(null);
+    const [game, setGame] = useState<WasmGameType | null>(null);
     const [state, setState] = useState<GameState>(INITIAL_STATE);
     const [firstMove, setFirstMove] = useState(true);
 
     // Check if evaluator is initialised
     const evaluatorRef = useRef<((inputs: Float32Array, batchSize: number) => Promise<{ policies: Float32Array, values: Float32Array }>) | null>(null);
 
-    const updateGameState = useCallback((g: WasmGame, aiThinking: boolean = false) => {
+    const updateGameState = useCallback((g: WasmGameType, aiThinking: boolean = false) => {
         setState({
             board: g.board(),
             legalMoves: g.legal_moves(),
@@ -43,6 +45,8 @@ export function useOthelloGame() {
 
     const initialiseGame = useCallback(async () => {
         try {
+            // Dynamically import WASM to avoid top-level await breaking the bundle
+            const { WasmGame } = await import("@wasm/othello_wasm");
             // GameType 2 = PlayerVsModel
             const g = new WasmGame(2);
 

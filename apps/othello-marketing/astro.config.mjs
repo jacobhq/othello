@@ -1,6 +1,7 @@
 // @ts-check
 
 import react from '@astrojs/react';
+import path from "path";
 import {defineConfig} from 'astro/config';
 import topLevelAwait from "vite-plugin-top-level-await";
 import wasm from "vite-plugin-wasm";
@@ -10,7 +11,6 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
     // Enable React to support React JSX components.
     integrations: [react()],
-
     vite: {
         plugins: [
             tailwindcss(),
@@ -21,5 +21,11 @@ export default defineConfig({
             exclude: ["onnxruntime-web"], // prevent esbuild from mangling ORT's WASM imports
         },
         assetsInclude: ["**/*.onnx"],
+        resolve: {
+            alias: {
+                "@": path.resolve("./src"),
+                "@wasm": path.resolve("./pkg"),
+            }
+        },
     },
 });
