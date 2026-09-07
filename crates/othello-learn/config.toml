@@ -1,0 +1,30 @@
+name = "othello_net_p1"
+
+[model]
+epochs = 4
+batch_size = 256
+res_blocks = 8
+offset = 0
+
+[model.lr_schedule]
+type = "cosine"
+lr_start = 0.001
+lr_end = 0.00001
+
+[eval]
+games = 100
+sims = 800
+skip = false
+gating = true
+gating_threshold = 0.55
+min_random_win_rate = 0.90
+
+[self_play]
+games = 4000
+sims = 800
+offset = 0
+
+[training]
+iterations = 32
+window = 5
+num_gpus = 1

@@ -1,62 +1,19 @@
+mod config;
+
 use clap::Parser;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
 use tracing::{info, warn};
+use crate::config::{Config, LrSchedule};
 
 /// CLI tool orchestrating Rust self-play and Python training loop
-/// TODO (later): Args should have either `model` or `self_play` prefix to indicate where they are used.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Name of the training run, used in saved models and data organisation.
+    /// Path to config file
     #[arg(short, long)]
-    prefix: String,
-    /// Number of iterations to run training for
-    #[arg(short, long)]
-    iterations: u32,
-    /// Number of self-play games per iteration
-    #[arg(long)]
-    self_play_games: u32,
-    /// Number of MCTS simulations per self-play game
-    #[arg(long)]
-    self_play_sims: Option<u32>,
-    /// Offset to store the training data, useful when resuming a training run
-    #[arg(long)]
-    self_play_offset: Option<u32>,
-    /// Number of epochs to train the model for per iteration
-    #[arg(long)]
-    model_epochs: Option<u32>,
-    /// Model batch size used in training
-    #[arg(long)]
-    model_batch_size: Option<u32>,
-    /// Number of conv blocks to include in the model
-    #[arg(long)]
-    model_res_blocks: Option<u32>,
-    /// Initial learning rate. Used with --lr-schedule for cosine annealing.
-    #[arg(long, default_value_t = 2e-3)]
-    lr_start: f32,
-    /// Final learning rate. Used with --lr-schedule for cosine annealing.
-    #[arg(long, default_value_t = 1e-5)]
-    lr_end: f32,
-    /// Learning rate schedule: 'cosine' (default) or 'constant'
-    #[arg(long, default_value = "cosine")]
-    lr_schedule: String,
-    /// Offset to store the model at, useful when resuming a training run
-    #[arg(long)]
-    model_offset: Option<u32>,
-    /// Number of past datasets to use per training iteration (size of sliding window)
-    #[arg(long, default_value_t = 3)]
-    window: u32,
-    /// Number of games to play when evaluating the model against random and against the previous iteration
-    #[arg(long, default_value_t = 50)]
-    eval_games: u32,
-    /// Number of simulations to use per move during eval
-    #[arg(long, default_value_t = 800)]
-    eval_sims: u32,
-    /// Skip the eval to reduce training time, good if you are confident in params and just need to train
-    #[arg(long, default_value_t = false)]
-    skip_eval: bool,
+    config: String,
     /// Disable reduced Dirichlet noise for early iterations (always use eps=0.25)
     #[arg(long, default_value_t = false)]
     #[deprecated]
@@ -65,18 +22,6 @@ struct Args {
     #[arg(long, default_value_t = false)]
     #[deprecated]
     skip_initial_checkpoint: bool,
-    /// Enable model gating (only promote models that beat current best)
-    #[arg(long, default_value_t = false)]
-    enable_gating: bool,
-    /// Win rate threshold for model promotion
-    #[arg(long, default_value_t = 0.55)]
-    gating_threshold: f64,
-    /// Minimum win rate against random to allow promotion
-    #[arg(long, default_value_t = 0.9)]
-    min_random_win_rate: f64,
-    /// Number of GPUs to use for training. Uses torchrun for >1, plain python for 1.
-    #[arg(long, default_value_t = 2)]
-    num_gpus: u32,
 }
 
 /// Evaluation result from othello-self-play eval command
@@ -108,17 +53,18 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
+    let config = Config::try_from_file(&args.config).unwrap();
 
     // Calculate offsets
-    let sp_offset0 = args.self_play_offset.unwrap_or(0);
-    let model_offset0 = args.model_offset.unwrap_or(0);
+    let sp_offset0 = config.self_play.offset.unwrap_or(0);
+    let model_offset0 = config.model.offset.unwrap_or(0);
 
     // Data directory for all self-play output
     let data_dir = "../othello-self-play/data";
 
     // Evaluation results directory
     let evals_dir = PathBuf::from("evals");
-    if !args.skip_eval {
+    if !config.eval.skip {
         std::fs::create_dir_all(&evals_dir).expect("Failed to create evals directory");
     }
 
@@ -129,8 +75,8 @@ fn main() {
     // Track evaluation results
     let mut eval_results: Vec<String> = Vec::new();
 
-    for i in 0..args.iterations {
-        let base_offset = sp_offset0 + i * args.self_play_games;
+    for i in 0..config.training.iterations {
+        let base_offset = sp_offset0 + i * config.self_play.games;
         let model_idx = model_offset0 + i;
 
         info!("Starting iteration {}", i);
@@ -145,12 +91,10 @@ fn main() {
                 .arg("--out-prefix")
                 .arg(format!(
                     "../../packages/othello-training/models/{}_{}",
-                    &args.prefix, model_idx
+                    config.name, model_idx
                 ));
-
-            if let Some(rb) = args.model_res_blocks {
-                init_cmd.arg("--res-blocks").arg(rb.to_string());
-            }
+            
+            init_cmd.arg("--res-blocks").arg(config.model.res_blocks.to_string());
 
             init_cmd.arg("--init-model");
 
@@ -178,38 +122,36 @@ fn main() {
             .arg("--offset")
             .arg(base_offset.to_string())
             .arg("--games")
-            .arg(args.self_play_games.to_string())
+            .arg(config.self_play.games.to_string())
             .arg("--prefix")
-            .arg(&args.prefix)
+            .arg(&config.name)
             .arg("--iteration")
             .arg(actual_iteration.to_string());
 
         if args.no_early_noise_reduction {
             self_play.arg("--no-early-noise-reduction");
         }
-
-        if let Some(sims) = args.self_play_sims {
-            self_play.arg("--sims").arg(sims.to_string());
-        }
+        
+        self_play.arg("--sims").arg(config.self_play.sims.to_string());
 
         // Always pass model (dummy for iteration 0, trained otherwise)
         // When gating is enabled, use the best model instead of the latest
-        let selfplay_model_idx = if args.enable_gating && i > 0 {
+        let selfplay_model_idx = if config.eval.gating && i > 0 {
             best_model_idx
         } else {
             model_idx
         };
         let model_in = format!(
             "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
-            &args.prefix,
+            &config.name,
             selfplay_model_idx,
             if selfplay_model_idx == 0 {
                 0
             } else {
-                args.model_epochs.unwrap_or(2)
+                config.model.epochs
             }
         );
-        if args.enable_gating && i > 0 {
+        if config.eval.gating && i > 0 {
             info!("Using best model (idx {}) for self-play", best_model_idx);
         }
         self_play.arg("--model").arg(&model_in);
@@ -217,19 +159,19 @@ fn main() {
         assert!(self_play.status().expect("self-play failed").success());
 
         // Python training with sliding window
-        info!("\nTraining on last {} data files", args.window);
+        info!("\nTraining on last {} data files", config.training.window);
 
         // Location to store the model
         let model_out_prefix = format!(
             "../../packages/othello-training/models/{}_{}",
-            args.prefix,
+            config.name,
             model_idx + 1
         );
 
-        let mut train = if args.num_gpus > 1 {
+        let mut train = if config.training.num_gpus > 1 {
             let mut cmd = Command::new("../../packages/othello-training/.venv/bin/torchrun");
             cmd.arg("--standalone")
-                .arg(format!("--nproc_per_node={}", args.num_gpus));
+                .arg(format!("--nproc_per_node={}", config.training.num_gpus));
             cmd
         } else {
             Command::new(python_path)
@@ -239,9 +181,9 @@ fn main() {
             .arg("--data")
             .arg(data_dir)
             .arg("--window")
-            .arg(args.window.to_string())
+            .arg(config.training.window.to_string())
             .arg("--data-prefix")
-            .arg(&args.prefix)
+            .arg(&config.name)
             .arg("--out-prefix")
             .arg(&model_out_prefix);
 
@@ -254,42 +196,36 @@ fn main() {
         if model_idx > 0 && !skip_checkpoint {
             let checkpoint_path = format!(
                 "../../packages/othello-training/models/{}_{}_checkpoint.pt",
-                &args.prefix, model_idx
+                &config.name, model_idx
             );
             train.arg("--checkpoint").arg(&checkpoint_path);
         }
 
-        if let Some(e) = args.model_epochs {
-            train.arg("--epochs").arg(e.to_string());
-        }
-        if let Some(b) = args.model_batch_size {
-            train.arg("--batch-size").arg(b.to_string());
-        }
+        train.arg("--epochs").arg(config.model.epochs.to_string());
+        train.arg("--batch-size").arg(config.model.batch_size.to_string());
 
         // Compute learning rate based on schedule
-        let lr = if args.lr_schedule == "constant" {
-            args.lr_start
-        } else {
-            // Cosine annealing over total iterations (accounting for resume offset)
-            let total_iterations = args.iterations + model_offset0;
-            cosine_lr(actual_iteration, total_iterations, args.lr_start, args.lr_end)
+        let lr = match config.model.lr_schedule {
+            LrSchedule::Constant { lr } => lr,
+            LrSchedule::Cosine { lr_start, lr_end } => {
+                let total_iterations = config.training.iterations + model_offset0;
+                cosine_lr(actual_iteration, total_iterations, lr_start, lr_end)
+            }
         };
         info!("Learning rate for iteration {}: {:.6}", actual_iteration, lr);
         train.arg("--lr").arg(lr.to_string());
 
-        if let Some(rb) = args.model_res_blocks {
-            train.arg("--res-blocks").arg(rb.to_string());
-        }
+        train.arg("--res-blocks").arg(config.model.res_blocks.to_string());
 
         assert!(train.status().expect("training failed").success());
 
         // Evaluation matches
-        if !args.skip_eval {
+        if !config.eval.skip {
             let new_model = format!(
                 "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
-                &args.prefix,
+                &config.name,
                 model_idx + 1,
-                args.model_epochs.unwrap_or(2)
+                config.model.epochs
             );
 
             // Track whether this model passes gating checks
@@ -305,22 +241,22 @@ fn main() {
                 // When gating: compare against best trained model
                 // But if best_model_idx is 0 (untrained), compare against previous instead
                 // This prevents getting stuck in a loop with the untrained model
-                let compare_model_idx = if args.enable_gating && best_model_idx > 0 {
+                let compare_model_idx = if config.eval.gating && best_model_idx > 0 {
                     best_model_idx
                 } else {
                     model_idx  // Compare against previous iteration
                 };
                 let compare_model = format!(
                     "../../packages/othello-training/models/{}_{}_othello_net_epoch_{:03}.onnx",
-                    &args.prefix,
+                    &config.name,
                     compare_model_idx,
-                    if compare_model_idx == 0 { 0 } else { args.model_epochs.unwrap_or(2) }
+                    if compare_model_idx == 0 { 0 } else { config.model.epochs }
                 );
 
-                let vs_prev_json = evals_dir.join(format!("{}_iter{:03}_vs_prev.json", &args.prefix, model_idx + 1));
+                let vs_prev_json = evals_dir.join(format!("{}_iter{:03}_vs_prev.json", &config.name, model_idx + 1));
 
                 info!("Eval: New model vs {} (idx {})",
-                    if args.enable_gating && best_model_idx > 0 { "best model" } else { "previous" },
+                    if config.eval.gating && best_model_idx > 0 { "best model" } else { "previous" },
                     compare_model_idx);
 
                 let mut eval_cmd =
@@ -333,9 +269,9 @@ fn main() {
                     .arg("--old-model")
                     .arg(&compare_model)
                     .arg("--games")
-                    .arg(args.eval_games.to_string())
+                    .arg(config.eval.games.to_string())
                     .arg("--sims")
-                    .arg(args.eval_sims.to_string())
+                    .arg(config.eval.sims.to_string())
                     .arg("--output-json")
                     .arg(&vs_prev_json);
 
@@ -347,12 +283,12 @@ fn main() {
                     .and_then(|s| serde_json::from_str(&s).ok());
 
                 let (result_str, win_rate_str) = if let Some(ref result) = vs_prev_result {
-                    passes_vs_prev = result.win_rate >= args.gating_threshold;
+                    passes_vs_prev = result.win_rate >= config.eval.gating_threshold;
                     (
                         format!(
                             "Iter {}: vs {} - {} ({:.1}% win rate)",
                             model_idx + 1,
-                            if args.enable_gating { "best" } else { "prev" },
+                            if config.eval.gating { "best" } else { "prev" },
                             if passes_vs_prev { "PASS" } else { "FAIL" },
                             result.win_rate * 100.0
                         ),
@@ -364,7 +300,7 @@ fn main() {
                         format!(
                             "Iter {}: vs {} - {} (exit code)",
                             model_idx + 1,
-                            if args.enable_gating { "best" } else { "prev" },
+                            if config.eval.gating { "best" } else { "prev" },
                             if passes_vs_prev { "PASS" } else { "FAIL" }
                         ),
                         "unknown".to_string(),
@@ -375,7 +311,7 @@ fn main() {
             }
 
             // Eval vs true random player
-            let vs_random_json = evals_dir.join(format!("{}_iter{:03}_vs_random.json", &args.prefix, model_idx + 1));
+            let vs_random_json = evals_dir.join(format!("{}_iter{:03}_vs_random.json", &config.name, model_idx + 1));
 
             info!("Eval: New model vs True Random");
             let mut baseline_cmd =
@@ -386,9 +322,9 @@ fn main() {
                 .arg("--model")
                 .arg(&new_model)
                 .arg("--games")
-                .arg(args.eval_games.to_string())
+                .arg(config.eval.games.to_string())
                 .arg("--sims")
-                .arg(args.eval_sims.to_string())
+                .arg(config.eval.sims.to_string())
                 .arg("--output-json")
                 .arg(&vs_random_json);
 
@@ -405,12 +341,12 @@ fn main() {
                     warn!("Low win rate vs random ({:.1}%) - model may be undertrained",
                         result.win_rate * 100.0);
                 }
-                passes_vs_random = result.win_rate >= args.min_random_win_rate;
+                passes_vs_random = result.win_rate >= config.eval.min_random_win_rate;
                 format!(
                     "Iter {}: vs random - {} ({:.1}% win rate)",
                     model_idx + 1,
                     if result.win_rate >= 0.75 { "GOOD" }
-                    else if result.win_rate >= args.min_random_win_rate { "WEAK" }
+                    else if result.win_rate >= config.eval.min_random_win_rate { "WEAK" }
                     else { "FAIL" },
                     result.win_rate * 100.0
                 )
@@ -426,7 +362,7 @@ fn main() {
             eval_results.push(result_str);
 
             // Model gating decision
-            if args.enable_gating {
+            if config.eval.gating {
                 // Special case: first trained model (i=0) ALWAYS gets promoted
                 // to escape the untrained model's data distribution.
                 // First iteration models are expected to be weak, but we need
@@ -443,10 +379,10 @@ fn main() {
                         if !passes_vs_prev {
                             warn!("   - Failed: did not beat {} by {:.0}%",
                                 if best_model_idx > 0 { "best model" } else { "previous" },
-                                args.gating_threshold * 100.0);
+                                config.eval.gating_threshold * 100.0);
                         }
                         if !passes_vs_random {
-                            warn!("   - Failed: did not beat random by {:.0}%", args.min_random_win_rate * 100.0);
+                            warn!("   - Failed: did not beat random by {:.0}%", config.eval.min_random_win_rate * 100.0);
                         }
                     }
                 }
@@ -456,7 +392,6 @@ fn main() {
 
     // Print summary
     info!("Training Complete");
-    info!("\nConfig: {:?}", args);
 
     // Handle emptiness in case eval was skipped
     if !eval_results.is_empty() {
