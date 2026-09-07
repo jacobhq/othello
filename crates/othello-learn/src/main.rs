@@ -2,6 +2,7 @@ use clap::Parser;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::process::Command;
+use tracing::{info, warn};
 
 /// CLI tool orchestrating Rust self-play and Python training loop
 /// TODO (later): Args should have either `model` or `self_play` prefix to indicate where they are used.
@@ -104,6 +105,8 @@ fn main() {
     #[cfg(not(target_os = "windows"))]
     let python_path = "../../packages/othello-training/.venv/bin/python3";
 
+    tracing_subscriber::fmt::init();
+
     let args = Args::parse();
 
     // Calculate offsets
@@ -130,11 +133,11 @@ fn main() {
         let base_offset = sp_offset0 + i * args.self_play_games;
         let model_idx = model_offset0 + i;
 
-        println!("=== Iteration {} ===", i);
+        info!("Starting iteration {}", i);
 
         // Generate dummy model for iteration 0 (only when not resuming)
         if i == 0 && model_offset0 == 0 {
-            println!("Generating initial ONNX model for iteration 0...");
+            info!("Generating initial ONNX model for iteration 0...");
 
             let mut init_cmd = Command::new(python_path);
             init_cmd
@@ -207,14 +210,14 @@ fn main() {
             }
         );
         if args.enable_gating && i > 0 {
-            println!("Using best model (idx {}) for self-play", best_model_idx);
+            info!("Using best model (idx {}) for self-play", best_model_idx);
         }
         self_play.arg("--model").arg(&model_in);
 
         assert!(self_play.status().expect("self-play failed").success());
 
         // Python training with sliding window
-        println!("\nTraining on last {} data files", args.window);
+        info!("\nTraining on last {} data files", args.window);
 
         // Location to store the model
         let model_out_prefix = format!(
@@ -271,7 +274,7 @@ fn main() {
             let total_iterations = args.iterations + model_offset0;
             cosine_lr(actual_iteration, total_iterations, args.lr_start, args.lr_end)
         };
-        println!("Learning rate for iteration {}: {:.6}", actual_iteration, lr);
+        info!("Learning rate for iteration {}: {:.6}", actual_iteration, lr);
         train.arg("--lr").arg(lr.to_string());
 
         if let Some(rb) = args.model_res_blocks {
@@ -316,7 +319,7 @@ fn main() {
 
                 let vs_prev_json = evals_dir.join(format!("{}_iter{:03}_vs_prev.json", &args.prefix, model_idx + 1));
 
-                println!("\n--- Eval: New model vs {} (idx {}) ---",
+                info!("Eval: New model vs {} (idx {})",
                     if args.enable_gating && best_model_idx > 0 { "best model" } else { "previous" },
                     compare_model_idx);
 
@@ -367,14 +370,14 @@ fn main() {
                         "unknown".to_string(),
                     )
                 };
-                println!("{}", result_str);
+                info!("{}", result_str);
                 eval_results.push(result_str);
             }
 
             // Eval vs true random player
             let vs_random_json = evals_dir.join(format!("{}_iter{:03}_vs_random.json", &args.prefix, model_idx + 1));
 
-            println!("\n--- Eval: New model vs True Random ---");
+            info!("Eval: New model vs True Random");
             let mut baseline_cmd =
                 Command::new("../othello-self-play/target/release/othello-self-play");
             baseline_cmd
@@ -399,7 +402,7 @@ fn main() {
             let result_str = if let Some(ref result) = vs_random_result {
                 // Warn if random win rate is concerning
                 if result.win_rate < 0.75 {
-                    println!("⚠️  WARNING: Low win rate vs random ({:.1}%) - model may be undertrained",
+                    warn!("Low win rate vs random ({:.1}%) - model may be undertrained",
                         result.win_rate * 100.0);
                 }
                 passes_vs_random = result.win_rate >= args.min_random_win_rate;
@@ -419,7 +422,7 @@ fn main() {
                     if passes_vs_random { "PASS" } else { "FAIL" }
                 )
             };
-            println!("{}", result_str);
+            info!("{}", result_str);
             eval_results.push(result_str);
 
             // Model gating decision
@@ -429,21 +432,21 @@ fn main() {
                 // First iteration models are expected to be weak, but we need
                 // to start training on data from a trained model to improve.
                 if is_first_trained {
-                    println!("✅ First trained model PROMOTED: idx {} (mandatory bootstrap)", model_idx + 1);
+                    info!("First trained model PROMOTED: idx {} (mandatory bootstrap)", model_idx + 1);
                     best_model_idx = model_idx + 1;
                 } else if i > 0 {
                     if passes_vs_prev && passes_vs_random {
-                        println!("✅ Model PROMOTED: new best model is idx {}", model_idx + 1);
+                        info!("Model PROMOTED: new best model is idx {}", model_idx + 1);
                         best_model_idx = model_idx + 1;
                     } else {
-                        println!("❌ Model NOT promoted: keeping best model idx {}", best_model_idx);
+                        warn!("Model NOT promoted: keeping best model idx {}", best_model_idx);
                         if !passes_vs_prev {
-                            println!("   - Failed: did not beat {} by {:.0}%", 
+                            warn!("   - Failed: did not beat {} by {:.0}%",
                                 if best_model_idx > 0 { "best model" } else { "previous" },
                                 args.gating_threshold * 100.0);
                         }
                         if !passes_vs_random {
-                            println!("   - Failed: did not beat random by {:.0}%", args.min_random_win_rate * 100.0);
+                            warn!("   - Failed: did not beat random by {:.0}%", args.min_random_win_rate * 100.0);
                         }
                     }
                 }
@@ -452,14 +455,14 @@ fn main() {
     }
 
     // Print summary
-    println!("=== Training Complete ===");
-    println!("\nConfig: {:?}", args);
+    info!("Training Complete");
+    info!("\nConfig: {:?}", args);
 
     // Handle emptiness in case eval was skipped
     if !eval_results.is_empty() {
-        println!("\n--- Evaluation Summary ---");
+        info!("Evaluation Summary:");
         for result in &eval_results {
-            println!("  {}", result);
+            info!("  {}", result);
         }
     }
 }
