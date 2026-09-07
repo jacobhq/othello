@@ -24,7 +24,7 @@ pub enum GameType {
     PlayerVsModel = 2,
 }
 
-const AI_SIMS: u32 = 2000;
+const AI_SIMS: u32 = 1000;
 
 /// JS-facing wrapper around the core Rust OthelloGame.
 #[wasm_bindgen]

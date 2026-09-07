@@ -1,0 +1,7 @@
+onlyBuiltDependencies:
+  - '@swc/core'
+  - core-js
+  - esbuild
+  - msw
+  - protobufjs
+  - sharp
